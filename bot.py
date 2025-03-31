@@ -320,6 +320,9 @@ def main():
     app.add_handler(MessageHandler(filters.Regex(r"^⏰ Просроченные$"), overdue_tasks))
     app.add_handler(MessageHandler(filters.Regex(r"^✅ Завершить задачу$"), done_start))
     app.add_handler(MessageHandler(filters.Regex(r"^❌ Отменить$"), cancel))
+    app.add_handler(MessageHandler(filters.Regex(r"^📝 Добавить задачу$"), addtask_start))
+app.add_handler(MessageHandler(filters.Regex(r"^📅 Добавить встречу$"), addevent_start))
+
 
     print("🚀 Бот запущен. Жду команды...")
     app.run_polling()
