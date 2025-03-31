@@ -1,12 +1,9 @@
-import logging
-from datetime import datetime, timezone
-import pytz
 from telegram import Update
 from telegram.ext import ContextTypes
-from googleapiclient.discovery import build
 from auth import get_credentials
-
-MINSK_TZ = pytz.timezone("Europe/Minsk")
+from auth_utils import MINSK_TZ
+from googleapiclient.discovery import build
+from datetime import datetime, timezone
 
 async def overdue_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     creds = get_credentials()
@@ -14,7 +11,6 @@ async def overdue_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     service = build("tasks", "v1", credentials=creds)
     result = service.tasks().list(tasklist='@default', showCompleted=False).execute()
     tasks = result.get('items', [])
-
     overdue = []
     for task in tasks:
         due = task.get("due")
@@ -23,10 +19,8 @@ async def overdue_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 due_dt = datetime.strptime(due, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc).astimezone(MINSK_TZ)
                 if due_dt < now:
                     overdue.append(f"❗ {task['title']} (на {due_dt.strftime('%d.%m.%Y')})")
-            except Exception as e:
-                logging.warning(f"Ошибка в overdue: {e}")
+            except Exception:
                 continue
-
     if overdue:
         await update.message.reply_text("⏰ Просроченные задачи:\n" + "\n".join(overdue))
     else:
