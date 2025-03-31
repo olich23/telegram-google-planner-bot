@@ -1,9 +1,11 @@
 import logging
 import pickle
 import os
+import io
+import base64
 from datetime import datetime
 
-from telegram import Update
+from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, ContextTypes,
     MessageHandler, filters, ConversationHandler
@@ -11,11 +13,12 @@ from telegram.ext import (
 
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
+from dotenv import load_dotenv
 
-# Логгирование
+load_dotenv()
+
 logging.basicConfig(level=logging.INFO)
 
-# Состояния для диалога
 ASK_TASK_TEXT = 0
 ASK_TASK_DATE = 1
 ASK_TASK_DURATION = 2
@@ -25,34 +28,30 @@ ASK_EVENT_DATE = 5
 ASK_EVENT_START = 6
 ASK_EVENT_END = 7
 
-# Области доступа Google API
 SCOPES = [
     "https://www.googleapis.com/auth/calendar",
     "https://www.googleapis.com/auth/tasks",
 ]
 
-# Авторизация Google
-
 def get_credentials():
     creds = None
-    if os.path.exists("token.pickle"):
-        with open("token.pickle", "rb") as token:
-            creds = pickle.load(token)
+
+    encoded_token = os.getenv("GOOGLE_TOKEN")
+    if encoded_token:
+        try:
+            token_data = base64.b64decode(encoded_token)
+            creds = pickle.load(io.BytesIO(token_data))
+        except Exception as e:
+            logging.error(f"Ошибка загрузки токена: {e}")
 
     if not creds:
-        flow = InstalledAppFlow.from_client_secrets_file(
-            "credentials.json", SCOPES
+        flow = InstalledAppFlow.from_client_config(
+            eval(os.getenv("GOOGLE_CREDENTIALS")), SCOPES
         )
         creds = flow.run_local_server(port=0)
-        with open("token.pickle", "wb") as token:
-            pickle.dump(creds, token)
-
     return creds
 
-# Команда /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    from telegram import ReplyKeyboardMarkup
-
     menu = """
 👋 Привет! Я бот-планировщик. Вот что я умею:
 
@@ -66,20 +65,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = [["📝 Добавить задачу", "📋 Показать задачи"], ["✅ Завершить задачу", "📅 Добавить встречу"], ["📆 Сегодня", "❌ Отменить"]]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    await update.message.reply_text(menu + "Выберите действие с помощью кнопок ниже:", reply_markup=reply_markup)
+    await update.message.reply_text(menu + "\n\nВыберите действие с помощью кнопок ниже:", reply_markup=reply_markup)
 
-# Старт диалога задачи
 async def addtask_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📝 Введи текст задачи:")
     return ASK_TASK_TEXT
 
-# Получение текста задачи
 async def received_task_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['task_title'] = update.message.text
     await update.message.reply_text("📅 Укажи дату (в формате ДД.ММ.ГГГГ):")
     return ASK_TASK_DATE
 
-# Получение даты задачи
 async def received_task_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     date_text = update.message.text
     try:
@@ -91,7 +87,6 @@ async def received_task_date(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("❌ Неверный формат. Попробуй снова: ДД.ММ.ГГГГ")
         return ASK_TASK_DATE
 
-# Получение длительности задачи
 async def received_task_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
     duration = update.message.text
     creds = get_credentials()
@@ -107,7 +102,6 @@ async def received_task_duration(update: Update, context: ContextTypes.DEFAULT_T
     await update.message.reply_text(f"✅ Задача добавлена: {result['title']}")
     return ConversationHandler.END
 
-# Старт диалога встречи
 async def addevent_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📌 Введи название встречи:")
     return ASK_EVENT_TITLE
@@ -159,12 +153,10 @@ async def received_event_end(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(f"❌ Ошибка при добавлении события: {e}")
     return ConversationHandler.END
 
-# Отмена
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❌ Действие отменено.")
     return ConversationHandler.END
 
-# Команда /listtasks
 async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     creds = get_credentials()
     service = build("tasks", "v1", credentials=creds)
@@ -176,7 +168,7 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🎉 У тебя нет активных задач.")
         return
 
-    message = "📝 Твои задачи:"
+    message = "📝 Твои задачи:\n"
     for idx, task in enumerate(items, start=1):
         title = task['title']
         notes = task.get('notes', '')
@@ -187,12 +179,11 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for line in notes.splitlines():
                 if "Планируемое время:" in line:
                     duration = f" — {line.strip()}"
-        message += f"{idx}. {title}{due_str}{duration}"
+        message += f"{idx}. {title}{due_str}{duration}\n"
 
     context.user_data['tasks'] = items
     await update.message.reply_text(message)
 
-# Старт завершения задачи
 async def done_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     creds = get_credentials()
     service = build("tasks", "v1", credentials=creds)
@@ -212,7 +203,6 @@ async def done_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(message)
     return ASK_DONE_INDEX
 
-# Завершение выбранной задачи
 async def mark_selected_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         index = int(update.message.text) - 1
@@ -234,13 +224,11 @@ async def mark_selected_done(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     return ConversationHandler.END
 
-# Основной запуск
 if __name__ == "__main__":
-    TOKEN = "7970819733:AAFkStb9GpNZgpLaHpzSEyE4DG3i_gx2E5o"
+    TOKEN = os.getenv("BOT_TOKEN")
 
     app = ApplicationBuilder().token(TOKEN).build()
 
-    # Диалог по добавлению задачи
     add_task_conv = ConversationHandler(
         entry_points=[CommandHandler("addtask", addtask_start)],
         states={
@@ -251,7 +239,6 @@ if __name__ == "__main__":
         fallbacks=[CommandHandler("cancel", cancel)]
     )
 
-    # Диалог завершения задачи
     done_task_conv = ConversationHandler(
         entry_points=[CommandHandler("done", done_start)],
         states={
@@ -260,7 +247,6 @@ if __name__ == "__main__":
         fallbacks=[CommandHandler("cancel", cancel)]
     )
 
-    # Диалог добавления встречи
     add_event_conv = ConversationHandler(
         entry_points=[CommandHandler("addevent", addevent_start)],
         states={
@@ -273,14 +259,11 @@ if __name__ == "__main__":
     )
 
     app.add_handler(CommandHandler("start", start))
-
-    # Обработка текстовых кнопок как эквивалентов команд
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex("^📝 Добавить задачу$"), addtask_start))
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex("^📋 Показать задачи$"), list_tasks))
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex("^✅ Завершить задачу$"), done_start))
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex("^📅 Добавить встречу$"), addevent_start))
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex("^❌ Отменить$"), cancel))
-    # Команда '📆 Сегодня' подключим, когда сделаем today    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, lambda update, context: context.application.create_task(context.application.process_update(update))))
     app.add_handler(add_task_conv)
     app.add_handler(done_task_conv)
     app.add_handler(add_event_conv)
