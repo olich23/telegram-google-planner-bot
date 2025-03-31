@@ -1,11 +1,11 @@
 from telegram.ext import CommandHandler, MessageHandler, ConversationHandler, filters
 from tasks import *
 from events import *
-from menu import start, cancel, list_tasks
+from menu import start, cancel
 
 from tasks import (
     addtask_start, received_task_text, received_task_date, received_task_duration,
-    done_start, mark_selected_done
+    done_start, mark_selected_done, list_tasks
 )
 from events import (
     addevent_start, received_event_title, received_event_date,
