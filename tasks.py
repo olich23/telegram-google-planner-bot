@@ -1,12 +1,9 @@
 import logging
-import io
-import os
-import pickle
-import base64
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+import pytz
 
 from telegram import Update
-from telegram.ext import ContextTypes, ConversationHandler, MessageHandler, filters
+from telegram.ext import ContextTypes, ConversationHandler
 from googleapiclient.discovery import build
 from auth_utils import get_credentials
 
@@ -14,6 +11,8 @@ ASK_TASK_TEXT = 0
 ASK_TASK_DATE = 1
 ASK_TASK_DURATION = 2
 ASK_DONE_INDEX = 3
+
+MINSK_TZ = pytz.timezone("Europe/Minsk")
 
 # Добавление задачи
 async def addtask_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -82,3 +81,51 @@ async def mark_selected_done(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("❌ Введи номер задачи.")
         return ASK_DONE_INDEX
     return ConversationHandler.END
+
+# Просроченные задачи
+async def overdue_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    creds = get_credentials()
+    now = datetime.now(MINSK_TZ)
+    service = build("tasks", "v1", credentials=creds)
+    result = service.tasks().list(tasklist='@default', showCompleted=False).execute()
+    tasks = result.get('items', [])
+    overdue = []
+    for task in tasks:
+        due = task.get("due")
+        if due:
+            try:
+                due_dt = datetime.strptime(due, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc).astimezone(MINSK_TZ)
+                if due_dt < now:
+                    overdue.append(f"❗ {task['title']} (на {due_dt.strftime('%d.%m.%Y')})")
+            except Exception as e:
+                logging.warning(f"Ошибка в overdue: {e}")
+    if overdue:
+        await update.message.reply_text("⏰ Просроченные задачи:\n" + "\n".join(overdue))
+    else:
+        await update.message.reply_text("✅ У тебя нет просроченных задач!")
+
+# Задачи на сегодня
+async def today_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    creds = get_credentials()
+    now = datetime.now(MINSK_TZ)
+    today_str = now.date()
+
+    service = build("tasks", "v1", credentials=creds)
+    result = service.tasks().list(tasklist='@default', showCompleted=False).execute()
+    tasks = result.get('items', [])
+
+    today_tasks = []
+    for task in tasks:
+        due = task.get("due")
+        if due:
+            try:
+                due_dt = datetime.strptime(due, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc).astimezone(MINSK_TZ)
+                if due_dt.date() == today_str:
+                    today_tasks.append(f"✅ {task['title']} (на {due_dt.strftime('%d.%m.%Y')})")
+            except Exception as e:
+                logging.warning(f"Ошибка в today_tasks: {e}")
+
+    if today_tasks:
+        await update.message.reply_text("📆 Задачи на сегодня:\n" + "\n".join(today_tasks))
+    else:
+        await update.message.reply_text("✅ На сегодня задач нет!")
