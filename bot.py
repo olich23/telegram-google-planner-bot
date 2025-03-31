@@ -66,9 +66,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = [["📝 Добавить задачу", "📋 Показать задачи"], ["✅ Завершить задачу", "📅 Добавить встречу"], ["📆 Сегодня", "❌ Отменить"]]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    await update.message.reply_text(menu + "
-
-Выберите действие с помощью кнопок ниже:", reply_markup=reply_markup)
+    await update.message.reply_text(menu + "Выберите действие с помощью кнопок ниже:", reply_markup=reply_markup)
 
 # Старт диалога задачи
 async def addtask_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -178,8 +176,7 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🎉 У тебя нет активных задач.")
         return
 
-    message = "📝 Твои задачи:
-"
+    message = "📝 Твои задачи:"
     for idx, task in enumerate(items, start=1):
         title = task['title']
         notes = task.get('notes', '')
@@ -190,8 +187,7 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for line in notes.splitlines():
                 if "Планируемое время:" in line:
                     duration = f" — {line.strip()}"
-        message += f"{idx}. {title}{due_str}{duration}
-"
+        message += f"{idx}. {title}{due_str}{duration}"
 
     context.user_data['tasks'] = items
     await update.message.reply_text(message)
