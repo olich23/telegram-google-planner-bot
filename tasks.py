@@ -1,8 +1,9 @@
 from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
-from auth import get_credentials
 from googleapiclient.discovery import build
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+from auth import get_credentials
+from auth_utils import MINSK_TZ
 
 ASK_TASK_TEXT = 0
 ASK_TASK_DATE = 1
@@ -75,3 +76,92 @@ async def mark_selected_done(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("❌ Введи номер задачи.")
         return ASK_DONE_INDEX
     return ConversationHandler.END
+
+async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    creds = get_credentials()
+    service = build("tasks", "v1", credentials=creds)
+    results = service.tasks().list(tasklist='@default', showCompleted=False).execute()
+    items = results.get('items', [])
+    if not items:
+        await update.message.reply_text("🎉 У тебя нет активных задач.")
+        return
+    message = "📝 Твои задачи:\n"
+    for idx, task in enumerate(items, start=1):
+        title = task['title']
+        notes = task.get('notes', '')
+        due = task.get('due')
+        due_str = f" (на {due[:10]})" if due else ""
+        message += f"{idx}. {title}{due_str}"
+        if notes:
+            message += f" — {notes}"
+        message += "\n"
+    context.user_data['tasks'] = items
+    await update.message.reply_text(message)
+
+async def today_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    creds = get_credentials()
+    now = datetime.now(MINSK_TZ)
+    today_str = now.date()
+
+    service = build("tasks", "v1", credentials=creds)
+    result = service.tasks().list(tasklist='@default', showCompleted=False).execute()
+    tasks = result.get('items', [])
+
+    today_tasks = []
+    for task in tasks:
+        due = task.get("due")
+        if due:
+            try:
+                due_dt = datetime.strptime(due, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc).astimezone(MINSK_TZ)
+                if due_dt.date() == today_str:
+                    today_tasks.append(f"✅ {task['title']} (на {due_dt.strftime('%d.%m.%Y')})")
+            except Exception as e:
+                continue
+
+    calendar_service = build("calendar", "v3", credentials=creds)
+    events_result = calendar_service.events().list(
+        calendarId='primary',
+        timeMin=now.isoformat(),
+        timeMax=(now + timedelta(days=1)).isoformat(),
+        singleEvents=True,
+        orderBy='startTime'
+    ).execute()
+    events = events_result.get('items', [])
+
+    lines = ["📆 Задачи и встречи на сегодня:"]
+    lines.extend(today_tasks or ["Задач нет"])
+
+    if events:
+        lines.append("\n🕒 Встречи:")
+        for event in events:
+            start = event['start'].get('dateTime', event['start'].get('date'))
+            summary = event.get('summary', 'Без названия')
+            if 'T' in start:
+                lines.append(f"• {summary} в {start[11:16]}")
+            else:
+                lines.append(f"• {summary}")
+    else:
+        lines.append("Встреч нет")
+
+    await update.message.reply_text("\n".join(lines))
+
+async def overdue_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    creds = get_credentials()
+    now = datetime.now(MINSK_TZ)
+    service = build("tasks", "v1", credentials=creds)
+    result = service.tasks().list(tasklist='@default', showCompleted=False).execute()
+    tasks = result.get('items', [])
+    overdue = []
+    for task in tasks:
+        due = task.get("due")
+        if due:
+            try:
+                due_dt = datetime.strptime(due, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc).astimezone(MINSK_TZ)
+                if due_dt < now:
+                    overdue.append(f"❗ {task['title']} (на {due_dt.strftime('%d.%m.%Y')})")
+            except Exception:
+                continue
+    if overdue:
+        await update.message.reply_text("⏰ Просроченные задачи:\n" + "\n".join(overdue))
+    else:
+        await update.message.reply_text("✅ У тебя нет просроченных задач!")
