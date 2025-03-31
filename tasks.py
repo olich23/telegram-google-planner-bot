@@ -9,28 +9,8 @@ ASK_TASK_DATE = 1
 ASK_TASK_DURATION = 2
 ASK_DONE_INDEX = 3
 
-async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    creds = get_credentials()
-    service = build("tasks", "v1", credentials=creds)
-    results = service.tasks().list(tasklist='@default', showCompleted=False).execute()
-    items = results.get('items', [])
-    if not items:
-        await update.message.reply_text("🎉 У тебя нет активных задач.")
-        return
-    message = "📝 Твои задачи:\n"
-    for idx, task in enumerate(items, start=1):
-        title = task['title']
-        notes = task.get('notes', '')
-        due = task.get('due')
-        due_str = f" (на {due[:10]})" if due else ""
-        message += f"{idx}. {title}{due_str}"
-        if notes:
-            message += f" — {notes}"
-        message += "\n"
-    context.user_data['tasks'] = items
-    await update.message.reply_text(message)
-
 async def addtask_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
     await update.message.reply_text("📝 Введи текст задачи:")
     return ASK_TASK_TEXT
 
