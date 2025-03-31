@@ -1,32 +1,29 @@
-from datetime import datetime
 from telegram import Update
-from telegram.ext import ContextTypes
+from telegram.ext import ContextTypes, ConversationHandler
 from googleapiclient.discovery import build
-from auth_utils import get_credentials
+from utils import get_credentials, MINSK_TZ
+from datetime import datetime
 
+ASK_EVENT_TITLE, ASK_EVENT_DATE, ASK_EVENT_START, ASK_EVENT_END = range(4)
 
 async def addevent_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("\U0001F4CC Введи название встречи:")
-    return 4
-
+    await update.message.reply_text("📌 Введи название встречи:")
+    return ASK_EVENT_TITLE
 
 async def received_event_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['event_title'] = update.message.text
-    await update.message.reply_text("\U0001F4C5 Укажи дату встречи (ДД.ММ.ГГГГ):")
-    return 5
-
+    await update.message.reply_text("📅 Укажи дату встречи (ДД.ММ.ГГГГ):")
+    return ASK_EVENT_DATE
 
 async def received_event_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['event_date'] = update.message.text
-    await update.message.reply_text("\U0001F552 Укажи время начала (например: 14:30):")
-    return 6
-
+    await update.message.reply_text("🕒 Укажи время начала (например: 14:30):")
+    return ASK_EVENT_START
 
 async def received_event_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['event_start'] = update.message.text
-    await update.message.reply_text("\U0001F565 Укажи время окончания (например: 15:30):")
-    return 7
-
+    await update.message.reply_text("🕕 Укажи время окончания (например: 15:30):")
+    return ASK_EVENT_END
 
 async def received_event_end(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -49,7 +46,7 @@ async def received_event_end(update: Update, context: ContextTypes.DEFAULT_TYPE)
         service = build("calendar", "v3", credentials=creds)
         service.events().insert(calendarId='primary', body=event).execute()
 
-        await update.message.reply_text(f"\u2705 Встреча '{title}' добавлена в календарь!")
+        await update.message.reply_text(f"✅ Встреча '{title}' добавлена в календарь!")
     except Exception as e:
-        await update.message.reply_text(f"\u274C Ошибка при добавлении события: {e}")
-    return -1
+        await update.message.reply_text(f"❌ Ошибка при добавлении события: {e}")
+    return ConversationHandler.END
