@@ -19,3 +19,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ["❌ Отменить"]]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     await update.message.reply_text(menu + "\n\nВыберите действие с помощью кнопок ниже:", reply_markup=reply_markup)
+
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("❌ Действие отменено.")
+    return ConversationHandler.END
