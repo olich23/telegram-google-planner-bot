@@ -10,6 +10,7 @@ ASK_EVENT_START = 6
 ASK_EVENT_END = 7
 
 async def addevent_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
     await update.message.reply_text("📌 Введи название встречи:")
     return ASK_EVENT_TITLE
 
