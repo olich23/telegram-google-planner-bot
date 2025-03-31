@@ -3,7 +3,7 @@ import pickle
 import os
 import io
 import base64
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
@@ -184,6 +184,34 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['tasks'] = items
     await update.message.reply_text(message)
 
+async def today_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    creds = get_credentials()
+    service = build("tasks", "v1", credentials=creds)
+
+    now = datetime.utcnow()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat() + "Z"
+    today_end = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).isoformat() + "Z"
+
+    results = service.tasks().list(tasklist='@default', showCompleted=False).execute()
+    items = results.get('items', [])
+
+    today_items = [task for task in items if task.get("due") and today_start <= task["due"] < today_end]
+
+    if not today_items:
+        await update.message.reply_text("✅ На сегодня задач нет!")
+        return
+
+    message = "📆 Задачи на сегодня:\n"
+    for idx, task in enumerate(today_items, start=1):
+        title = task["title"]
+        notes = task.get("notes", "")
+        message += f"{idx}. {title}"
+        if notes:
+            message += f" ({notes})"
+        message += "\n"
+
+    await update.message.reply_text(message)
+
 async def done_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     creds = get_credentials()
     service = build("tasks", "v1", credentials=creds)
@@ -263,11 +291,13 @@ if __name__ == "__main__":
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex("^📋 Показать задачи$"), list_tasks))
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex("^✅ Завершить задачу$"), done_start))
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex("^📅 Добавить встречу$"), addevent_start))
+    app.add_handler(MessageHandler(filters.TEXT & filters.Regex("^📆 Сегодня$"), today_tasks))
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex("^❌ Отменить$"), cancel))
     app.add_handler(add_task_conv)
     app.add_handler(done_task_conv)
     app.add_handler(add_event_conv)
     app.add_handler(CommandHandler("listtasks", list_tasks))
+    app.add_handler(CommandHandler("today", today_tasks))
 
     print("🚀 Бот запущен. Жду команды...")
     app.run_polling()
