@@ -235,12 +235,35 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❌ Действие отменено.")
     return ConversationHandler.END
 
+async def overdue_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    creds = get_credentials()
+    now = datetime.now(timezone.utc)
+    service = build("tasks", "v1", credentials=creds)
+    result = service.tasks().list(tasklist='@default', showCompleted=False).execute()
+    tasks = result.get('items', [])
+    overdue = []
+    for task in tasks:
+        due = task.get("due")
+        if due:
+            try:
+                due_dt = datetime.strptime(due, "%Y-%m-%dT%H:%M:%S.%fZ")
+                if due_dt < now:
+                    overdue.append(f"❗ {task['title']} (на {due[:10]})")
+            except Exception:
+                pass
+    if overdue:
+        await update.message.reply_text("⏰ Просроченные задачи:\n" + "\n".join(overdue))
+    else:
+        await update.message.reply_text("✅ У тебя нет просроченных задач!")
+
 if __name__ == "__main__":
     app = ApplicationBuilder().token(os.getenv("TELEGRAM_TOKEN")).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("today", today_tasks))
     app.add_handler(CommandHandler("listtasks", list_tasks))
+    app.add_handler(CommandHandler("overdue", overdue_tasks))
+    app.add_handler(CommandHandler("cancel", cancel))
 
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler("done", done_start), MessageHandler(filters.Regex(r"^✅ Завершить задачу$"), done_start)],
@@ -277,6 +300,7 @@ if __name__ == "__main__":
     app.add_handler(MessageHandler(filters.Regex(r"^📝 Добавить задачу$"), addtask_start))
     app.add_handler(MessageHandler(filters.Regex(r"^📅 Добавить встречу$"), addevent_start))
     app.add_handler(MessageHandler(filters.Regex(r"^❌ Отменить$"), cancel))
+    app.add_handler(MessageHandler(filters.Regex(r"^⏰ Просроченные$"), overdue_tasks))
 
     print("🚀 Бот запущен. Жду команды...")
     app.run_polling()
