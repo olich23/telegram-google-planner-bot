@@ -1,6 +1,7 @@
 from telegram.ext import CommandHandler, MessageHandler, ConversationHandler, filters
 from tasks import *
 from events import *
+from menu import start
 
 async def cancel(update, context):
     await update.message.reply_text("❌ Действие отменено.")
