@@ -264,7 +264,8 @@ def main():
 
     app.add_handler(MessageHandler(filters.Regex(r"^📆 Сегодня$"), today_tasks))
     app.add_handler(MessageHandler(filters.Regex(r"^⏰ Просроченные$"), overdue_tasks))
-    app.add_handler(MessageHandler(filters.Regex(r"^❌ Отменить$"), cancel))
+    app.add_handler(MessageHandler(filters.Regex(r"^❌ Отменить$"), cancel),
+            MessageHandler(filters.Regex(r"^📋 Показать задачи$"), list_tasks))
 
     app.add_handler(ConversationHandler(
         allow_reentry=True,
@@ -274,14 +275,16 @@ def main():
             ASK_TASK_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_task_date)],
             ASK_TASK_DURATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_task_duration)],
         },
-        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(r"^❌ Отменить$"), cancel)]
+        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(r"^❌ Отменить$"), cancel),
+            MessageHandler(filters.Regex(r"^📋 Показать задачи$"), list_tasks)]
     ))
 
     app.add_handler(ConversationHandler(
         allow_reentry=True,
         entry_points=[CommandHandler("done", done_start), MessageHandler(filters.Regex(r"^✅ Завершить задачу$"), done_start)],
         states={ASK_DONE_INDEX: [MessageHandler(filters.TEXT & ~filters.COMMAND, mark_selected_done)]},
-        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(r"^❌ Отменить$"), cancel)]
+        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(r"^❌ Отменить$"), cancel),
+            MessageHandler(filters.Regex(r"^📋 Показать задачи$"), list_tasks)]
     ))
 
     app.add_handler(ConversationHandler(
@@ -293,7 +296,8 @@ def main():
             ASK_EVENT_START: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_start)],
             ASK_EVENT_END: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_end)],
         },
-        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(r"^❌ Отменить$"), cancel)]
+        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(r"^❌ Отменить$"), cancel),
+            MessageHandler(filters.Regex(r"^📋 Показать задачи$"), list_tasks)]
     ))
 
     print("🚀 Бот запущен. Жду команды...")
@@ -301,3 +305,24 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    creds = get_credentials()
+    service = build("tasks", "v1", credentials=creds)
+    results = service.tasks().list(tasklist='@default', showCompleted=False).execute()
+    items = results.get('items', [])
+    if not items:
+        await update.message.reply_text("🎉 У тебя нет активных задач.")
+        return
+    message = "📝 Твои задачи:\n"
+    for idx, task in enumerate(items, start=1):
+        title = task['title']
+        notes = task.get('notes', '')
+        due = task.get('due')
+        due_str = f" (на {due[:10]})" if due else ""
+        message += f"{idx}. {title}{due_str}"
+        if notes:
+            message += f" — {notes}"
+        message += "\n"
+    context.user_data['tasks'] = items
+    await update.message.reply_text(message)
