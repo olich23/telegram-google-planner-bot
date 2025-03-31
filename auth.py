@@ -1,9 +1,12 @@
 import os
+import base64
 import pickle
 import io
-import base64
 import logging
+from dotenv import load_dotenv
 from google_auth_oauthlib.flow import InstalledAppFlow
+
+load_dotenv()
 
 SCOPES = [
     "https://www.googleapis.com/auth/calendar",
@@ -19,11 +22,10 @@ def get_credentials():
             creds = pickle.load(io.BytesIO(token_data))
         except Exception as e:
             logging.error(f"Ошибка загрузки токена: {e}")
-    
+
     if not creds:
         flow = InstalledAppFlow.from_client_config(
             eval(os.getenv("GOOGLE_CREDENTIALS")), SCOPES
         )
         creds = flow.run_local_server(port=0)
     return creds
-
