@@ -1,11 +1,16 @@
 from telegram.ext import CommandHandler, MessageHandler, ConversationHandler, filters
 from tasks import *
 from events import *
-from menu import start
+from menu import start, cancel, list_tasks
 
-async def cancel(update, context):
-    await update.message.reply_text("❌ Действие отменено.")
-    return ConversationHandler.END
+from tasks import (
+    addtask_start, received_task_text, received_task_date, received_task_duration,
+    done_start, mark_selected_done
+)
+from events import (
+    addevent_start, received_event_title, received_event_date,
+    received_event_start, received_event_end
+)
 
 def setup_handlers(app):
     app.add_handler(CommandHandler("start", start))
