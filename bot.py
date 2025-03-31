@@ -4,6 +4,7 @@ import os
 import io
 import base64
 from datetime import datetime, timedelta, timezone
+import pytz
 
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
@@ -16,7 +17,6 @@ from googleapiclient.discovery import build
 from dotenv import load_dotenv
 
 load_dotenv()
-
 logging.basicConfig(level=logging.INFO)
 
 ASK_TASK_TEXT = 0
@@ -33,6 +33,8 @@ SCOPES = [
     "https://www.googleapis.com/auth/tasks",
 ]
 
+MINSK_TZ = pytz.timezone("Europe/Minsk")
+
 def get_credentials():
     creds = None
     encoded_token = os.getenv("GOOGLE_TOKEN")
@@ -42,13 +44,85 @@ def get_credentials():
             creds = pickle.load(io.BytesIO(token_data))
         except Exception as e:
             logging.error(f"Ошибка загрузки токена: {e}")
-
     if not creds:
         flow = InstalledAppFlow.from_client_config(
             eval(os.getenv("GOOGLE_CREDENTIALS")), SCOPES
         )
         creds = flow.run_local_server(port=0)
     return creds
+
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("❌ Действие отменено.")
+    return ConversationHandler.END
+
+async def overdue_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    creds = get_credentials()
+    now = datetime.now(MINSK_TZ)
+    service = build("tasks", "v1", credentials=creds)
+    result = service.tasks().list(tasklist='@default', showCompleted=False).execute()
+    tasks = result.get('items', [])
+    overdue = []
+    for task in tasks:
+        due = task.get("due")
+        if due:
+            try:
+                due_dt = datetime.strptime(due, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc).astimezone(MINSK_TZ)
+                if due_dt < now:
+                    overdue.append(f"❗ {task['title']} (на {due_dt.strftime('%d.%m.%Y')})")
+            except Exception as e:
+                logging.warning(f"Ошибка в overdue: {e}")
+                continue
+    if overdue:
+        await update.message.reply_text("⏰ Просроченные задачи:" + "".join(overdue))
+    else:
+        await update.message.reply_text("✅ У тебя нет просроченных задач!")
+
+async def today_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    creds = get_credentials()
+    now = datetime.now(MINSK_TZ)
+    today_str = now.date()
+
+    service = build("tasks", "v1", credentials=creds)
+    result = service.tasks().list(tasklist='@default', showCompleted=False).execute()
+    tasks = result.get('items', [])
+
+    today_tasks = []
+    for task in tasks:
+        due = task.get("due")
+        if due:
+            try:
+                due_dt = datetime.strptime(due, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc).astimezone(MINSK_TZ)
+                if due_dt.date() == today_str:
+                    today_tasks.append(f"✅ {task['title']} (на {due_dt.strftime('%d.%m.%Y')})")
+            except Exception as e:
+                logging.warning(f"Ошибка в today_tasks: {e}")
+
+    calendar_service = build("calendar", "v3", credentials=creds)
+    events_result = calendar_service.events().list(
+        calendarId='primary',
+        timeMin=now.isoformat(),
+        timeMax=(now + timedelta(days=1)).isoformat(),
+        singleEvents=True,
+        orderBy='startTime'
+    ).execute()
+    events = events_result.get('items', [])
+
+    lines = ["📆 Задачи и встречи на сегодня:"]
+    lines.extend(today_tasks or ["Задач нет"])
+
+    if events:
+        lines.append("🕒 Встречи:")
+        for event in events:
+            start = event['start'].get('dateTime', event['start'].get('date'))
+            summary = event.get('summary', 'Без названия')
+            if 'T' in start:
+                lines.append(f"• {summary} в {start[11:16]}")
+            else:
+                lines.append(f"• {summary}")
+    else:
+        lines.append("Встреч нет")
+
+    await update.message.reply_text("".join(lines))
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     menu = """
@@ -62,7 +136,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ⏰ /overdue — показать просроченные задачи
 ❌ /cancel — отменить текущую операцию
     """
-
     keyboard = [["📝 Добавить задачу", "📋 Показать задачи"],
                 ["✅ Завершить задачу", "📅 Добавить встречу"],
                 ["📆 Сегодня", "⏰ Просроченные"],
@@ -70,26 +143,63 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     await update.message.reply_text(menu + "\n\nВыберите действие с помощью кнопок ниже:", reply_markup=reply_markup)
 
-async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    creds = get_credentials()
-    service = build("tasks", "v1", credentials=creds)
-    results = service.tasks().list(tasklist='@default', showCompleted=False).execute()
-    items = results.get('items', [])
-    if not items:
-        await update.message.reply_text("🎉 У тебя нет активных задач.")
-        return
-    message = "📝 Твои задачи:\n"
-    for idx, task in enumerate(items, start=1):
-        title = task['title']
-        notes = task.get('notes', '')
-        due = task.get('due')
-        due_str = f" (на {due[:10]})" if due else ""
-        message += f"{idx}. {title}{due_str}"
-        if notes:
-            message += f" — {notes}"
-        message += "\n"
-    context.user_data['tasks'] = items
-    await update.message.reply_text(message)
+# Заглушка для запуска — сюда добавляйте handlers в зависимости от функциональности
+def main():
+    app = ApplicationBuilder().token(os.getenv("TELEGRAM_TOKEN")).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("cancel", cancel))
+    app.add_handler(CommandHandler("today", today_tasks))
+    app.add_handler(CommandHandler("overdue", overdue_tasks))
+
+    app.add_handler(MessageHandler(filters.Regex(r"^📆 Сегодня$"), today_tasks))
+    app.add_handler(MessageHandler(filters.Regex(r"^⏰ Просроченные$"), overdue_tasks))
+    app.add_handler(MessageHandler(filters.Regex(r"^❌ Отменить$"), cancel))
+
+    
+    app.add_handler(ConversationHandler(
+        entry_points=[CommandHandler("addtask", addtask_start), MessageHandler(filters.Regex(r"^📝 Добавить задачу$"), addtask_start)],
+        states={
+            ASK_TASK_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_task_text)],
+            ASK_TASK_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_task_date)],
+            ASK_TASK_DURATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_task_duration)],
+        },
+        fallbacks=[
+            CommandHandler("cancel", cancel),
+            MessageHandler(filters.Regex(r"^❌ Отменить$"), cancel)
+        ]
+    ))
+
+    app.add_handler(ConversationHandler(
+        entry_points=[CommandHandler("done", done_start), MessageHandler(filters.Regex(r"^✅ Завершить задачу$"), done_start)],
+        states={
+            ASK_DONE_INDEX: [MessageHandler(filters.TEXT & ~filters.COMMAND, mark_selected_done)],
+        },
+        fallbacks=[
+            CommandHandler("cancel", cancel),
+            MessageHandler(filters.Regex(r"^❌ Отменить$"), cancel)
+        ]
+    ))
+
+    app.add_handler(ConversationHandler(
+        entry_points=[CommandHandler("addevent", addevent_start), MessageHandler(filters.Regex(r"^📅 Добавить встречу$"), addevent_start)],
+        states={
+            ASK_EVENT_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_title)],
+            ASK_EVENT_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_date)],
+            ASK_EVENT_START: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_start)],
+            ASK_EVENT_END: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_end)],
+        },
+        fallbacks=[
+            CommandHandler("cancel", cancel),
+            MessageHandler(filters.Regex(r"^❌ Отменить$"), cancel)
+        ]
+    ))
+
+    print("🚀 Бот запущен. Жду команды...")
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
 
 async def addtask_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📝 Введи текст задачи:")
@@ -126,15 +236,15 @@ async def received_task_duration(update: Update, context: ContextTypes.DEFAULT_T
 async def done_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     creds = get_credentials()
     service = build("tasks", "v1", credentials=creds)
-    results = service.tasks().list(tasklist='@default', showCompleted=False).execute()
-    items = results.get('items', [])
+    result = service.tasks().list(tasklist='@default', showCompleted=False).execute()
+    items = result.get('items', [])
     if not items:
         await update.message.reply_text("❌ Нет активных задач для завершения.")
         return ConversationHandler.END
-    message = "Выбери номер задачи, которую хочешь завершить:\n"
-    for idx, task in enumerate(items, start=1):
-        message += f"{idx}. {task['title']}\n"
     context.user_data['tasks'] = items
+    message = "Выбери номер задачи, которую хочешь завершить:\n"
+    for idx, task in enumerate(items, 1):
+        message += f"{idx}. {task['title']}\n"
     await update.message.reply_text(message)
     return ASK_DONE_INDEX
 
@@ -153,42 +263,9 @@ async def mark_selected_done(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text("❌ Неверный номер. Попробуй снова.")
             return ASK_DONE_INDEX
     except ValueError:
-        await update.message.reply_text("❌ Пожалуйста, введи номер задачи.")
+        await update.message.reply_text("❌ Введи номер задачи.")
         return ASK_DONE_INDEX
     return ConversationHandler.END
-
-async def today_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    creds = get_credentials()
-    now = datetime.now(timezone.utc)
-    today_str = now.date().isoformat()
-    service = build("tasks", "v1", credentials=creds)
-    result = service.tasks().list(tasklist='@default', showCompleted=False).execute()
-    tasks = result.get('items', [])
-    today_tasks = []
-    for task in tasks:
-        due = task.get("due")
-        if due and due[:10] == today_str:
-            today_tasks.append(f"✅ {task['title']} (на {due[:10]})")
-    calendar_service = build("calendar", "v3", credentials=creds)
-    events_result = calendar_service.events().list(
-        calendarId='primary',
-        timeMin=now.isoformat(),
-        timeMax=(now + timedelta(days=1)).isoformat(),
-        singleEvents=True,
-        orderBy='startTime'
-    ).execute()
-    events = events_result.get('items', [])
-    lines = ["📆 Задачи и встречи на сегодня:"]
-    lines.extend(today_tasks or ["Задач нет"])
-    if events:
-        lines.append("\n🕒 Встречи:")
-        for event in events:
-            start = event['start'].get('dateTime', event['start'].get('date'))
-            summary = event.get('summary', 'Без названия')
-            lines.append(f"• {summary} в {start[11:16]}")
-    else:
-        lines.append("Встреч нет")
-    await update.message.reply_text("\n".join(lines))
 
 async def addevent_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📌 Введи название встречи:")
@@ -231,55 +308,31 @@ async def received_event_end(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(f"❌ Ошибка при добавлении события: {e}")
     return ConversationHandler.END
 
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("❌ Действие отменено.")
-    return ConversationHandler.END
-
-async def overdue_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    creds = get_credentials()
-    now = datetime.now(timezone.utc)
-    service = build("tasks", "v1", credentials=creds)
-    result = service.tasks().list(tasklist='@default', showCompleted=False).execute()
-    tasks = result.get('items', [])
-    overdue = []
-    for task in tasks:
-        due = task.get("due")
-        if due:
-            try:
-                due_dt = datetime.strptime(due, "%Y-%m-%dT%H:%M:%S.%fZ")
-                if due_dt < now:
-                    overdue.append(f"❗ {task['title']} (на {due[:10]})")
-            except Exception:
-                pass
-    if overdue:
-        await update.message.reply_text("⏰ Просроченные задачи:\n" + "\n".join(overdue))
-    else:
-        await update.message.reply_text("✅ У тебя нет просроченных задач!")
-
-if __name__ == "__main__":
+def main():
     app = ApplicationBuilder().token(os.getenv("TELEGRAM_TOKEN")).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("today", today_tasks))
-    app.add_handler(CommandHandler("listtasks", list_tasks))
-    app.add_handler(CommandHandler("overdue", overdue_tasks))
     app.add_handler(CommandHandler("cancel", cancel))
+    app.add_handler(CommandHandler("today", today_tasks))
+    app.add_handler(CommandHandler("overdue", overdue_tasks))
 
-    app.add_handler(ConversationHandler(
-        entry_points=[CommandHandler("done", done_start), MessageHandler(filters.Regex(r"^✅ Завершить задачу$"), done_start)],
-        states={
-            ASK_DONE_INDEX: [MessageHandler(filters.TEXT & ~filters.COMMAND, mark_selected_done)]
-        },
-        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(r"^❌ Отменить$"), cancel)]
-    ))
+    app.add_handler(MessageHandler(filters.Regex(r"^📆 Сегодня$"), today_tasks))
+    app.add_handler(MessageHandler(filters.Regex(r"^⏰ Просроченные$"), overdue_tasks))
+    app.add_handler(MessageHandler(filters.Regex(r"^❌ Отменить$"), cancel))
 
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler("addtask", addtask_start), MessageHandler(filters.Regex(r"^📝 Добавить задачу$"), addtask_start)],
         states={
             ASK_TASK_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_task_text)],
             ASK_TASK_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_task_date)],
-            ASK_TASK_DURATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_task_duration)]
+            ASK_TASK_DURATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_task_duration)],
         },
+        fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(r"^❌ Отменить$"), cancel)]
+    ))
+
+    app.add_handler(ConversationHandler(
+        entry_points=[CommandHandler("done", done_start), MessageHandler(filters.Regex(r"^✅ Завершить задачу$"), done_start)],
+        states={ASK_DONE_INDEX: [MessageHandler(filters.TEXT & ~filters.COMMAND, mark_selected_done)]},
         fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(r"^❌ Отменить$"), cancel)]
     ))
 
@@ -289,18 +342,13 @@ if __name__ == "__main__":
             ASK_EVENT_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_title)],
             ASK_EVENT_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_date)],
             ASK_EVENT_START: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_start)],
-            ASK_EVENT_END: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_end)]
+            ASK_EVENT_END: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_end)],
         },
         fallbacks=[CommandHandler("cancel", cancel), MessageHandler(filters.Regex(r"^❌ Отменить$"), cancel)]
     ))
 
-    app.add_handler(MessageHandler(filters.Regex(r"^📆 Сегодня$"), today_tasks))
-    app.add_handler(MessageHandler(filters.Regex(r"^📋 Показать задачи$"), list_tasks))
-    app.add_handler(MessageHandler(filters.Regex(r"^✅ Завершить задачу$"), done_start))
-    app.add_handler(MessageHandler(filters.Regex(r"^📝 Добавить задачу$"), addtask_start))
-    app.add_handler(MessageHandler(filters.Regex(r"^📅 Добавить встречу$"), addevent_start))
-    app.add_handler(MessageHandler(filters.Regex(r"^❌ Отменить$"), cancel))
-    app.add_handler(MessageHandler(filters.Regex(r"^⏰ Просроченные$"), overdue_tasks))
-
     print("🚀 Бот запущен. Жду команды...")
     app.run_polling()
+
+if __name__ == "__main__":
+    main()
