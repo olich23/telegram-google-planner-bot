@@ -1,10 +1,13 @@
 from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
+from auth import get_credentials
 from googleapiclient.discovery import build
-from utils import get_credentials, MINSK_TZ
 from datetime import datetime
 
-ASK_EVENT_TITLE, ASK_EVENT_DATE, ASK_EVENT_START, ASK_EVENT_END = range(4)
+ASK_EVENT_TITLE = 4
+ASK_EVENT_DATE = 5
+ASK_EVENT_START = 6
+ASK_EVENT_END = 7
 
 async def addevent_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📌 Введи название встречи:")
