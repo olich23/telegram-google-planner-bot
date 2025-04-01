@@ -289,15 +289,16 @@ async def received_event_end(update: Update, context: ContextTypes.DEFAULT_TYPE)
 def main():
     app = ApplicationBuilder().token(os.getenv("TELEGRAM_TOKEN")).build()
 
+    entry_points=[
+    CommandHandler("addevent", addevent_start),
+    MessageHandler(filters.Regex(r"^📅 Добавить встречу$"), addevent_start)
+],
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("cancel", cancel))
     app.add_handler(CommandHandler("listtasks", list_tasks))
     app.add_handler(CommandHandler("today", today_tasks))
     app.add_handler(CommandHandler("overdue", overdue_tasks))
-    entry_points=[
-    CommandHandler("addevent", addevent_start),
-    MessageHandler(filters.Regex(r"^📅 Добавить встречу$"), addevent_start)
-],
+    
 
     app.add_handler(MessageHandler(filters.Regex(r"^📝 Добавить задачу$"), addtask_start))
     app.add_handler(MessageHandler(filters.Regex(r"^📋 Показать задачи$"), list_tasks))
