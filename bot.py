@@ -479,8 +479,23 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)],
         allow_reentry=True
     )) 
-    
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_free_text))
+
+    # Обработка свободного текста, если ни один другой handler не сработал
+app.add_handler(ConversationHandler(
+    entry_points=[
+        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_free_text)
+    ],
+    states={
+        ASK_TASK_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_task_date)],
+        ASK_TASK_DURATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_task_duration)],
+        ASK_EVENT_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_date)],
+        ASK_EVENT_START: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_start)],
+        ASK_EVENT_END: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_end)],
+    },
+    fallbacks=[CommandHandler("cancel", cancel)],
+    allow_reentry=True
+))
+
     
     print("🚀 Бот запущен. Жду команды...")
     app.run_polling()
