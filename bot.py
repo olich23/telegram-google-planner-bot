@@ -197,57 +197,63 @@ async def mark_selected_done(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return ConversationHandler.END
 
 async def today_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    def format_russian_date(date_obj):
-        days = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
-        day_name = days[date_obj.weekday()]
-        return f"{day_name} ({date_obj.strftime('%d.%m')})"
-
     creds = get_credentials()
     now = datetime.now(MINSK_TZ)
-    today_str = now.date()
+    today_start = datetime(now.year, now.month, now.day, tzinfo=MINSK_TZ)
+    today_end = today_start + timedelta(days=1)
 
-    service = build("tasks", "v1", credentials=creds)
-    result = service.tasks().list(tasklist='@default', showCompleted=False).execute()
+    # Формат заголовка
+    formatted_today = format_russian_date(today_start)
+    lines = [f"📆 Сегодня: {formatted_today}"]
+
+    # Получаем задачи
+    task_service = build("tasks", "v1", credentials=creds)
+    result = task_service.tasks().list(tasklist='@default', showCompleted=False).execute()
     tasks = result.get('items', [])
 
-    today_tasks_list = []
+    today_tasks = []
     for task in tasks:
         due = task.get("due")
         if due:
             try:
                 due_dt = datetime.strptime(due, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc).astimezone(MINSK_TZ)
-                if due_dt.date() == today_str:
-                    today_tasks_list.append(f"✅ {task['title']} — {format_russian_date(due_dt)}")
+                if today_start <= due_dt < today_end:
+                    line = f"• {task['title']}"
+                    if task.get("notes"):
+                        line += f" — {task['notes']}"
+                    today_tasks.append(line)
             except Exception as e:
-                logging.warning(f"Ошибка в today_tasks: {e}")
+                logging.warning(f"Ошибка в обработке задачи: {e}")
 
+    lines.append("\n📝 Задачи:")
+    lines.extend(today_tasks or ["Нет задач на сегодня."])
+
+    # Получаем встречи
     calendar_service = build("calendar", "v3", credentials=creds)
     events_result = calendar_service.events().list(
         calendarId='primary',
-        timeMin=now.isoformat(),
-        timeMax=(now + timedelta(days=1)).isoformat(),
+        timeMin=today_start.isoformat(),
+        timeMax=today_end.isoformat(),
         singleEvents=True,
         orderBy='startTime'
     ).execute()
     events = events_result.get('items', [])
 
-    lines = [f"📆 Задачи и встречи на сегодня: {format_russian_date(now)}"]
-    lines.extend(today_tasks_list or ["Задач нет"])
-
+    lines.append("\n🕒 Встречи:")
     if events:
-        lines.append("\n🕒 Встречи:")
         for event in events:
             start = event['start'].get('dateTime', event['start'].get('date'))
             summary = event.get('summary', 'Без названия')
             if 'T' in start:
-                event_time = datetime.fromisoformat(start).astimezone(MINSK_TZ)
-                lines.append(f"• {summary} в {event_time.strftime('%H:%M')}")
+                start_time = datetime.fromisoformat(start).astimezone(MINSK_TZ)
+                lines.append(f"• {summary} в {start_time.strftime('%H:%M')}")
             else:
                 lines.append(f"• {summary}")
     else:
-        lines.append("Встреч нет")
+        lines.append("Нет встреч на сегодня.")
 
     await update.message.reply_text("\n".join(lines))
+
 
 
 async def overdue_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -256,31 +262,37 @@ async def overdue_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     service = build("tasks", "v1", credentials=creds)
     result = service.tasks().list(tasklist='@default', showCompleted=False).execute()
     tasks = result.get('items', [])
-    overdue = []
-    for task in tasks:
-       def format_russian_date(date_obj):
-        days = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
-        day_name = days[date_obj.weekday()]
-        date_str = date_obj.strftime("(%d.%m)")
-        return f"{day_name} {date_str}"
 
-    overdue = []
+    grouped_tasks = {}
+
     for task in tasks:
         due = task.get("due")
         if due:
             try:
                 due_dt = datetime.strptime(due, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc).astimezone(MINSK_TZ)
                 if due_dt < now:
-                    formatted_date = format_russian_date(due_dt)
-                    overdue.append(f"❗ {task['title']} — {formatted_date}")
+                    key = due_dt.date()
+                    if key not in grouped_tasks:
+                        grouped_tasks[key] = []
+                    task_line = f"• {task['title']}"
+                    if task.get("notes"):
+                        task_line += f" — {task['notes']}"
+                    grouped_tasks[key].append(task_line)
             except Exception as e:
                 logging.warning(f"Ошибка в overdue: {e}")
                 continue
 
-    if overdue:
-        await update.message.reply_text("⏰ Просроченные задачи:\n" + "\n".join(overdue))
-    else:
+    if not grouped_tasks:
         await update.message.reply_text("✅ У тебя нет просроченных задач!")
+        return
+
+    lines = ["⏰ Просроченные задачи:"]
+    for date in sorted(grouped_tasks.keys()):
+        lines.append(f"\n{format_russian_date(datetime.combine(date, datetime.min.time()))}")
+        lines.extend(grouped_tasks[date])
+
+    await update.message.reply_text("\n".join(lines))
+
 
 async def addevent_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📌 Введи название встречи:")
