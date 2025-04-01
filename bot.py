@@ -129,16 +129,16 @@ def extract_datetime_from_text(text: str):
 
     print("[DEBUG] Ни Natasha, ни dateparser не распознали дату 😢")
     for word in candidates:
-    if word in ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье", "завтра", "сегодня", "послезавтра"]:
-        fixed = f"в {word}" if not word.startswith("в ") else word
-        dp_result = dateparser.parse(fixed, languages=['ru'], settings={
-            "TIMEZONE": "Europe/Minsk",
-            "TO_TIMEZONE": "Europe/Minsk",
-            "RETURN_AS_TIMEZONE_AWARE": True
-        })
-        if dp_result:
-            print(f"[DEBUG] Дополненный dateparser распознал: {fixed} → {dp_result}")
-            return dp_result
+        if word in ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье", "завтра", "сегодня", "послезавтра"]:
+            fixed = f"в {word}" if not word.startswith("в ") else word
+            dp_result = dateparser.parse(fixed, languages=['ru'], settings={
+                "TIMEZONE": "Europe/Minsk",
+                "TO_TIMEZONE": "Europe/Minsk",
+                "RETURN_AS_TIMEZONE_AWARE": True
+            })
+            if dp_result:
+                print(f"[DEBUG] Дополненный dateparser распознал: {fixed} → {dp_result}")
+                return dp_result
     return None
 
 
