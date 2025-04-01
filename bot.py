@@ -17,6 +17,7 @@ from telegram.ext import (
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from dotenv import load_dotenv
+from telegram.error import TelegramError
 
 from natasha import (
     NewsEmbedding,
@@ -391,6 +392,7 @@ async def received_event_end(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return ConversationHandler.END
 
 async def handle_free_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print(f"[DEBUG] handle_free_text сработал. Текст: {text}")
     text = update.message.text.strip().lower()
 
     # Распознаём дату и время из текста
@@ -454,7 +456,8 @@ async def handle_free_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🤔 Я пока не понимаю это сообщение. Попробуй использовать команды или кнопки.")
     return ConversationHandler.END
 
-
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    logging.error(msg="Exception while handling update:", exc_info=context.error)
 
 
 def main():
@@ -532,6 +535,8 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)],
         allow_reentry=True
     ))
+    
+    app.add_error_handler(error_handler)
 
 
     
