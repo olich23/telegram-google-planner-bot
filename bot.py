@@ -234,9 +234,15 @@ async def addevent_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ASK_EVENT_TITLE
 
 async def received_event_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['event_title'] = update.message.text
-    await update.message.reply_text("📅 Укажи дату встречи (ДД.ММ.ГГГГ):")
-    return ASK_EVENT_DATE
+    text = update.message.text.strip()
+    if text:
+        context.user_data['event_title'] = text
+        await update.message.reply_text("📅 Укажи дату встречи (ДД.ММ.ГГГГ):")
+        return ASK_EVENT_DATE
+    else:
+        await update.message.reply_text("❌ Название не может быть пустым. Введи ещё раз:")
+        return ASK_EVENT_TITLE
+
 
 async def received_event_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
