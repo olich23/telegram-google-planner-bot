@@ -1,4 +1,3 @@
-# bot.py
 import logging
 import pickle
 import os
@@ -56,27 +55,6 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text("❌ Действие отменено.")
     return ConversationHandler.END
-
-async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    creds = get_credentials()
-    service = build("tasks", "v1", credentials=creds)
-    results = service.tasks().list(tasklist='@default', showCompleted=False).execute()
-    items = results.get('items', [])
-    if not items:
-        await update.message.reply_text("🎉 У тебя нет активных задач.")
-        return
-    message = "📝 Твои задачи:\n"
-    for idx, task in enumerate(items, start=1):
-        title = task['title']
-        notes = task.get('notes', '')
-        due = task.get('due')
-        due_str = f" (на {due[:10]})" if due else ""
-        message += f"{idx}. {title}{due_str}"
-        if notes:
-            message += f" — {notes}"
-        message += "\n"
-    context.user_data['tasks'] = items
-    await update.message.reply_text(message)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     menu = """
@@ -163,6 +141,75 @@ async def mark_selected_done(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return ASK_DONE_INDEX
     return ConversationHandler.END
 
+async def today_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    creds = get_credentials()
+    now = datetime.now(MINSK_TZ)
+    today_str = now.date()
+
+    service = build("tasks", "v1", credentials=creds)
+    result = service.tasks().list(tasklist='@default', showCompleted=False).execute()
+    tasks = result.get('items', [])
+
+    today_list = []
+    for task in tasks:
+        due = task.get("due")
+        if due:
+            try:
+                due_dt = datetime.strptime(due, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc).astimezone(MINSK_TZ)
+                if due_dt.date() == today_str:
+                    today_list.append(f"✅ {task['title']} (на {due_dt.strftime('%H:%M')})")
+            except Exception as e:
+                logging.warning(f"Ошибка в today_tasks: {e}")
+
+    calendar_service = build("calendar", "v3", credentials=creds)
+    events_result = calendar_service.events().list(
+        calendarId='primary',
+        timeMin=now.isoformat(),
+        timeMax=(now + timedelta(days=1)).isoformat(),
+        singleEvents=True,
+        orderBy='startTime'
+    ).execute()
+    events = events_result.get('items', [])
+
+    lines = ["📆 Задачи и встречи на сегодня:"]
+    lines.extend(today_list or ["Задач нет"])
+
+    if events:
+        lines.append("\n🕒 Встречи:")
+        for event in events:
+            start = event['start'].get('dateTime', event['start'].get('date'))
+            summary = event.get('summary', 'Без названия')
+            if 'T' in start:
+                lines.append(f"• {summary} в {start[11:16]}")
+            else:
+                lines.append(f"• {summary}")
+    else:
+        lines.append("Встреч нет")
+
+    await update.message.reply_text("\n".join(lines))
+
+async def overdue_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    creds = get_credentials()
+    now = datetime.now(MINSK_TZ)
+    service = build("tasks", "v1", credentials=creds)
+    result = service.tasks().list(tasklist='@default', showCompleted=False).execute()
+    tasks = result.get('items', [])
+    overdue = []
+    for task in tasks:
+        due = task.get("due")
+        if due:
+            try:
+                due_dt = datetime.strptime(due, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc).astimezone(MINSK_TZ)
+                if due_dt < now:
+                    overdue.append(f"❗ {task['title']} (на {due_dt.strftime('%d.%m.%Y %H:%M')})")
+            except Exception as e:
+                logging.warning(f"Ошибка в overdue: {e}")
+                continue
+    if overdue:
+        await update.message.reply_text("⏰ Просроченные задачи:\n" + "\n".join(overdue))
+    else:
+        await update.message.reply_text("✅ У тебя нет просроченных задач!")
+
 async def addevent_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📌 Введи название встречи:")
     return ASK_EVENT_TITLE
@@ -208,100 +255,75 @@ async def received_event_end(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(f"❌ Ошибка при добавлении события: {e}")
     return ConversationHandler.END
 
-async def today_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     creds = get_credentials()
-    now = datetime.now(MINSK_TZ)
-    today_str = now.date()
-
     service = build("tasks", "v1", credentials=creds)
-    result = service.tasks().list(tasklist='@default', showCompleted=False).execute()
-    tasks = result.get('items', [])
+    results = service.tasks().list(tasklist='@default', showCompleted=False).execute()
+    items = results.get('items', [])
+    if not items:
+        await update.message.reply_text("🎉 У тебя нет активных задач.")
+        return
+    message = "📝 Твои задачи:\n"
+    for idx, task in enumerate(items, start=1):
+        title = task['title']
+        notes = task.get('notes', '')
+        due = task.get('due')
+        due_str = f" (на {due[:10]})" if due else ""
+        message += f"{idx}. {title}{due_str}"
+        if notes:
+            message += f" — {notes}"
+        message += "\n"
+    context.user_data['tasks'] = items
+    await update.message.reply_text(message)
 
-    today_tasks = []
-    for task in tasks:
-        due = task.get("due")
-        if due:
-            try:
-                due_dt = datetime.strptime(due, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc).astimezone(MINSK_TZ)
-                if due_dt.date() == today_str:
-                    today_tasks.append(f"✅ {task['title']} (на {due_dt.strftime('%d.%m.%Y')})")
-            except Exception as e:
-                logging.warning(f"Ошибка в today_tasks: {e}")
+if __name__ == "__main__":
+    app = ApplicationBuilder().token(os.getenv("TELEGRAM_TOKEN")).build()
 
-    calendar_service = build("calendar", "v3", credentials=creds)
-    events_result = calendar_service.events().list(
-        calendarId='primary',
-        timeMin=now.isoformat(),
-        timeMax=(now + timedelta(days=1)).isoformat(),
-        singleEvents=True,
-        orderBy='startTime'
-    ).execute()
-    events = events_result.get('items', [])
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("cancel", cancel))
+    app.add_handler(CommandHandler("listtasks", list_tasks))
+    app.add_handler(CommandHandler("today", today_tasks))
+    app.add_handler(CommandHandler("overdue", overdue_tasks))
 
-    lines = ["📆 Задачи и встречи на сегодня:"]
-    lines.extend(today_tasks or ["Задач нет"])
+    app.add_handler(MessageHandler(filters.Regex(r"^📋 Показать задачи$"), list_tasks))
+    app.add_handler(MessageHandler(filters.Regex(r"^📝 Добавить задачу$"), addtask_start))
+    app.add_handler(MessageHandler(filters.Regex(r"^✅ Завершить задачу$"), done_start))
+    app.add_handler(MessageHandler(filters.Regex(r"^📅 Добавить встречу$"), addevent_start))
+    app.add_handler(MessageHandler(filters.Regex(r"^❌ Отменить$"), cancel))
+    app.add_handler(MessageHandler(filters.Regex(r"^📆 Сегодня$"), today_tasks))
+    app.add_handler(MessageHandler(filters.Regex(r"^⏰ Просроченные$"), overdue_tasks))
 
-    if events:
-        lines.append("\n🕒 Встречи:")
-        for event in events:
-            start = event['start'].get('dateTime', event['start'].get('date'))
-            summary = event.get('summary', 'Без названия')
-            if 'T' in start:
-                lines.append(f"• {summary} в {start[11:16]}")
-            else:
-                lines.append(f"• {summary}")
-    else:
-        lines.append("Встреч нет")
+    app.add_handler(ConversationHandler(
+        entry_points=[CommandHandler("addtask", addtask_start)],
+        states={
+            ASK_TASK_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_task_text)],
+            ASK_TASK_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_task_date)],
+            ASK_TASK_DURATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_task_duration)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+        allow_reentry=True
+    ))
 
-    await update.message.reply_text("\n".join(lines))
+    app.add_handler(ConversationHandler(
+        entry_points=[CommandHandler("done", done_start)],
+        states={
+            ASK_DONE_INDEX: [MessageHandler(filters.TEXT & ~filters.COMMAND, mark_selected_done)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+        allow_reentry=True
+    ))
 
-# ЗАПУСК
-print("🚀 Бот запущен. Жду команды...")
+    app.add_handler(ConversationHandler(
+        entry_points=[CommandHandler("addevent", addevent_start)],
+        states={
+            ASK_EVENT_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_title)],
+            ASK_EVENT_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_date)],
+            ASK_EVENT_START: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_start)],
+            ASK_EVENT_END: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_end)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+        allow_reentry=True
+    ))
 
-app = ApplicationBuilder().token(os.getenv("TELEGRAM_TOKEN")).build()
-
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("cancel", cancel))
-app.add_handler(CommandHandler("listtasks", list_tasks))
-app.add_handler(CommandHandler("today", today_tasks))
-app.add_handler(CommandHandler("overdue", overdue_tasks))
-
-app.add_handler(MessageHandler(filters.Regex(r"^📋 Показать задачи$"), list_tasks))
-app.add_handler(MessageHandler(filters.Regex(r"^❌ Отменить$"), cancel))
-app.add_handler(MessageHandler(filters.Regex(r"^📆 Сегодня$"), today_tasks))
-app.add_handler(MessageHandler(filters.Regex(r"^⏰ Просроченные$"), overdue_tasks))
-app.add_handler(MessageHandler(filters.Regex(r"^📝 Добавить задачу$"), addtask_start))
-app.add_handler(MessageHandler(filters.Regex(r"^📅 Добавить встречу$"), addevent_start))
-app.add_handler(MessageHandler(filters.Regex(r"^✅ Завершить задачу$"), done_start))
-
-app.add_handler(ConversationHandler(
-    entry_points=[CommandHandler("addtask", addtask_start)],
-    states={
-        ASK_TASK_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_task_text)],
-        ASK_TASK_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_task_date)],
-        ASK_TASK_DURATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_task_duration)],
-    },
-    fallbacks=[CommandHandler("cancel", cancel)],
-    allow_reentry=True
-))
-
-app.add_handler(ConversationHandler(
-    entry_points=[CommandHandler("addevent", addevent_start)],
-    states={
-        ASK_EVENT_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_title)],
-        ASK_EVENT_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_date)],
-        ASK_EVENT_START: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_start)],
-        ASK_EVENT_END: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_end)],
-    },
-    fallbacks=[CommandHandler("cancel", cancel)],
-    allow_reentry=True
-))
-
-app.add_handler(ConversationHandler(
-    entry_points=[CommandHandler("done", done_start)],
-    states={ASK_DONE_INDEX: [MessageHandler(filters.TEXT & ~filters.COMMAND, mark_selected_done)]},
-    fallbacks=[CommandHandler("cancel", cancel)],
-    allow_reentry=True
-))
-
-app.run_polling()
+    print("🚀 Бот запущен. Жду команды...")
+    app.run_polling()
