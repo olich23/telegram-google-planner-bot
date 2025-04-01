@@ -405,6 +405,7 @@ async def handle_free_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if parsed_datetime:
         if any(kw in lowered for kw in ["встреч", "созвон", "звонок", "встрет"]):
+            print("📌 Распознано: это встреча")
             title = update.message.text.split("встреч")[-1].strip().capitalize() or "Без названия"
             start_dt = parsed_datetime.astimezone(MINSK_TZ)
             end_dt = start_dt + timedelta(hours=1)
