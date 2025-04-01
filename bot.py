@@ -355,7 +355,6 @@ async def received_event_end(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def handle_free_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip().lower()
 
-    # Проверка: если бот уже ожидает дату для задачи
     if 'task_title' in context.user_data and 'task_due' not in context.user_data:
         parsed_date = dateparser.parse(text, languages=['ru'])
         if parsed_date:
@@ -366,7 +365,6 @@ async def handle_free_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Не понял дату. Введи снова (например: завтра, 01.04.2025):")
             return ASK_TASK_DATE
 
-    # Проверка: если бот уже ожидает дату для встречи
     if 'event_title' in context.user_data and 'event_date' not in context.user_data:
         parsed_date = dateparser.parse(text, languages=['ru'])
         if parsed_date:
@@ -377,13 +375,11 @@ async def handle_free_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Не понял дату. Введи снова (например: завтра, 01.04.2025):")
             return ASK_EVENT_DATE
 
-    # Если просто сообщение, но с "намёком" на задачу
     if any(kw in text for kw in ["задача", "сделать", "нужно", "планирую"]):
         context.user_data['task_title'] = update.message.text
         await update.message.reply_text("📅 Укажи дату задачи (например: завтра, 01.04.2025):")
         return ASK_TASK_DATE
 
-    # Если похоже на встречу
     if any(kw in text for kw in ["встреча", "созвон", "звонок", "встретиться"]):
         context.user_data['event_title'] = update.message.text
         await update.message.reply_text("📅 Когда назначить встречу? (например: завтра, в пятницу):")
@@ -410,7 +406,7 @@ def main():
     app.add_handler(MessageHandler(filters.Regex(r"^📆 Сегодня$"), today_tasks))
     app.add_handler(MessageHandler(filters.Regex(r"^⏰ Просроченные$"), overdue_tasks))
     app.add_handler(MessageHandler(filters.Regex(r"^❌ Отменить$"), cancel))
-
+  
     # ConversationHandler — Добавить задачу (через команду и кнопку)
     app.add_handler(ConversationHandler(
         entry_points=[
@@ -455,23 +451,20 @@ def main():
         allow_reentry=True
     ))
 
-    print("🚀 Бот запущен. Жду команды...")
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_free_text))
     app.add_handler(ConversationHandler(
-    entry_points=[
-        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_free_text)
-    ],
-    states={
-        ASK_TASK_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_task_date)],
-        ASK_TASK_DURATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_task_duration)],
-        ASK_EVENT_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_date)],
-        ASK_EVENT_START: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_start)],
-        ASK_EVENT_END: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_end)],
-    },
-    fallbacks=[CommandHandler("cancel", cancel)],
-    allow_reentry=True
-))
+        entry_points=[MessageHandler(filters.TEXT & ~filters.COMMAND, handle_free_text)],
+        states={
+            ASK_TASK_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_task_date)],
+            ASK_TASK_DURATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_task_duration)],
+            ASK_EVENT_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_date)],
+            ASK_EVENT_START: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_start)],
+            ASK_EVENT_END: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_end)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+        allow_reentry=True
+    ))
 
+    print("🚀 Бот запущен. Жду команды...")
     app.run_polling()
 
 
