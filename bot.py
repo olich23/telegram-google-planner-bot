@@ -450,10 +450,9 @@ def main():
         },
         fallbacks=[CommandHandler("cancel", cancel)],
         allow_reentry=True
-    ))
+    )) 
     
-
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_free_text))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_free_text))
     
     print("🚀 Бот запущен. Жду команды...")
     app.run_polling()
