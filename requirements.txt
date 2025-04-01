@@ -4,3 +4,4 @@ google-auth-oauthlib==1.2.0
 google-api-python-client==2.125.0
 python-dotenv
 pytz
+dateparser
