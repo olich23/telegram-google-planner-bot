@@ -18,6 +18,18 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from dotenv import load_dotenv
 
+from natasha import (
+    DatesExtractor,
+    NewsEmbedding,
+    MorphVocab,
+    Doc
+)
+
+morph_vocab = MorphVocab()
+emb = NewsEmbedding()
+dates_extractor = DatesExtractor(emb)
+
+
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
 
@@ -65,6 +77,17 @@ def get_credentials():
         )
         creds = flow.run_local_server(port=0)
     return creds
+
+def extract_date_from_text(text):
+    doc = Doc(text)
+    doc.segment()
+    doc.tag_ner()
+    matches = dates_extractor(text)
+    if matches:
+        date_fact = matches[0].fact
+        return date_fact
+    return None
+
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❌ Действие отменено.")
@@ -353,66 +376,56 @@ async def received_event_end(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return ConversationHandler.END
 
 async def handle_free_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip().lower()
+    text = update.message.text.strip()
 
-    # Распознаём дату и время из текста
-    parsed_datetime = dateparser.parse(text, languages=['ru'])
-
-    if parsed_datetime:
-        if any(kw in text for kw in ["встреч", "созвон", "звонок"]):
-            title = update.message.text.split("встреч")[-1].strip().capitalize() or "Без названия"
-            start_dt = parsed_datetime.astimezone(MINSK_TZ)
-            end_dt = start_dt + timedelta(hours=1)
-
-            event = {
-                'summary': title,
-                'start': {'dateTime': start_dt.isoformat(), 'timeZone': 'Europe/Minsk'},
-                'end': {'dateTime': end_dt.isoformat(), 'timeZone': 'Europe/Minsk'},
-                'description': 'Добавлено через свободный ввод'
-            }
-
-            creds = get_credentials()
-            service = build("calendar", "v3", credentials=creds)
-            service.events().insert(calendarId='primary', body=event).execute()
-
-            await update.message.reply_text(f"✅ Встреча '{title}' добавлена на {start_dt.strftime('%d.%m %H:%M')}")
-            return ConversationHandler.END
-
-        elif any(kw in text for kw in ["задач", "сделать", "нужно", "планирую"]):
-            creds = get_credentials()
-            service = build("tasks", "v1", credentials=creds)
-            task = {
-                "title": update.message.text,
-                "due": parsed_datetime.isoformat() + "Z",
-                "notes": "Добавлено через свободный ввод"
-            }
-            service.tasks().insert(tasklist='@default', body=task).execute()
-
-            await update.message.reply_text(f"✅ Задача добавлена на {parsed_datetime.strftime('%d.%m %H:%M')}")
-            return ConversationHandler.END
-
-    # Если в процессе диалога
+    # 1. Если мы уже в процессе добавления задачи (ожидаем дату)
     if 'task_title' in context.user_data and 'task_due' not in context.user_data:
-        parsed_date = dateparser.parse(text, languages=['ru'])
-        if parsed_date:
-            context.user_data['task_due'] = parsed_date.isoformat() + "Z"
+        dt = extract_datetime_from_text(text)
+        if dt:
+            context.user_data['task_due'] = dt.isoformat()
             await update.message.reply_text("⏱ Сколько времени планируешь на выполнение? (например: 1 час, 30 минут)")
             return ASK_TASK_DURATION
         else:
             await update.message.reply_text("❌ Не понял дату. Введи снова (например: завтра, 01.04.2025):")
             return ASK_TASK_DATE
 
+    # 2. Если мы уже в процессе добавления встречи (ожидаем дату)
     if 'event_title' in context.user_data and 'event_date' not in context.user_data:
-        parsed_date = dateparser.parse(text, languages=['ru'])
-        if parsed_date:
-            context.user_data['event_date'] = parsed_date.strftime("%d.%m.%Y")
-            await update.message.reply_text("🕒 Укажи время начала (например: 14:30):")
-            return ASK_EVENT_START
+        dt = extract_datetime_from_text(text)
+        if dt:
+            context.user_data['event_date'] = dt.strftime("%d.%m.%Y")
+            context.user_data['event_start'] = dt.strftime("%H:%M")
+            await update.message.reply_text("🕕 Укажи время окончания встречи (например: 15:30):")
+            return ASK_EVENT_END
         else:
             await update.message.reply_text("❌ Не понял дату. Введи снова (например: завтра, 01.04.2025):")
             return ASK_EVENT_DATE
 
-    # Фоллбэк
+    # 3. Попробуем распознать намерение по ключевым словам
+    lowered = text.lower()
+    if any(kw in lowered for kw in ["встреча", "созвон", "звонок", "встретиться"]):
+        context.user_data['event_title'] = text
+        dt = extract_datetime_from_text(text)
+        if dt:
+            context.user_data['event_date'] = dt.strftime("%d.%m.%Y")
+            context.user_data['event_start'] = dt.strftime("%H:%M")
+            await update.message.reply_text("🕕 Укажи время окончания встречи (например: 15:30):")
+            return ASK_EVENT_END
+        else:
+            await update.message.reply_text("📅 Когда назначить встречу? (например: завтра в 14:00):")
+            return ASK_EVENT_DATE
+
+    if any(kw in lowered for kw in ["нужно", "задача", "сделать", "планирую"]):
+        context.user_data['task_title'] = text
+        dt = extract_datetime_from_text(text)
+        if dt:
+            context.user_data['task_due'] = dt.isoformat()
+            await update.message.reply_text("⏱ Сколько времени планируешь на выполнение? (например: 1 час, 30 минут)")
+            return ASK_TASK_DURATION
+        else:
+            await update.message.reply_text("📅 Укажи дату задачи (например: завтра, 01.04.2025):")
+            return ASK_TASK_DATE
+
     await update.message.reply_text("🤔 Я пока не понимаю это сообщение. Попробуй использовать команды или кнопки.")
     return ConversationHandler.END
 
