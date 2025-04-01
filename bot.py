@@ -138,39 +138,47 @@ def extract_datetime_from_text(text: str):
     return None
 
 
-def parse_duration(duration_text):
-    # Попробуем найти количество часов и минут
-    duration_text = duration_text.lower()
-    hours = minutes = 0
+def parse_duration(text):
+    text = text.lower().strip()
 
-    # Числа прописью
-    word_to_number = {
-        "один": 1, "два": 2, "три": 3, "четыре": 4, "пять": 5,
-        "шесть": 6, "семь": 7, "восемь": 8, "девять": 9, "десять": 10,
-        "полтора": 1.5, "пол": 0.5, "полчаса": 0.5
-    }
+    # Стандартизированные фразы
+    if text in ["час", "один час", "1 час"]:
+        return "1 час"
+    if text in ["полчаса", "пол часа"]:
+        return "30 минут"
 
-    for word, value in word_to_number.items():
-        if word in duration_text:
-            if "час" in duration_text:
-                hours += value if isinstance(value, int) else int(value)
-                if isinstance(value, float) and value < 1:
-                    minutes += int(value * 60)
-            elif "минут" in duration_text or "минута" in duration_text:
-                minutes += int(value * 60)
+    # Формат с дробью: 1.5 часа / 1,5 часа
+    match = re.match(r"(\d+)[.,](\d+)\s*час", text)
+    if match:
+        hours = int(match.group(1))
+        decimal = int(match.group(2))
+        minutes = round(float(f"0.{decimal}") * 60)
+        return f"{hours} час {minutes} минут"
 
-    # Также ищем числовые значения
-    hour_match = re.search(r"(\d+(?:[\.,]\d+)?)\s*час", duration_text)
-    minute_match = re.search(r"(\d+)\s*минут", duration_text)
+    # Формат: 2 часа 30 минут
+    match = re.match(r"(?:(\d+)\s*час[аов]?)?\s*(?:(\d+)\s*минут[ы]?)?", text)
+    if match:
+        hours = match.group(1)
+        minutes = match.group(2)
+        result = []
+        if hours:
+            result.append(f"{hours} час")
+        if minutes:
+            result.append(f"{minutes} минут")
+        return " ".join(result).strip()
 
-    if hour_match:
-        hours += float(hour_match.group(1).replace(",", "."))
+    # Только часы
+    match = re.match(r"(\d+)\s*час", text)
+    if match:
+        return f"{match.group(1)} час"
 
-    if minute_match:
-        minutes += int(minute_match.group(1))
+    # Только минуты
+    match = re.match(r"(\d+)\s*мин", text)
+    if match:
+        return f"{match.group(1)} минут"
 
-    total_minutes = int(hours * 60 + minutes)
-    return total_minutes
+    return text  # на всякий случай, если ничего не подошло
+
 
 def weekday_to_date(word):
     weekdays = {
@@ -318,19 +326,20 @@ async def received_task_date(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return ASK_TASK_DATE
 
 async def received_task_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    duration_raw = update.message.text
-    duration_parsed = parse_duration(duration_raw)
+    raw_text = update.message.text
+    parsed_duration = parse_duration(raw_text)
 
     creds = get_credentials()
     service = build("tasks", "v1", credentials=creds)
     task = {
         "title": context.user_data['task_title'],
         "due": context.user_data['task_due'],
-        "notes": f"Планируемое время: {duration_parsed}"
+        "notes": f"Планируемое время: {parsed_duration}"
     }
     service.tasks().insert(tasklist='@default', body=task).execute()
-    await update.message.reply_text(f"✅ Задача добавлена!\n🕒 {duration_parsed}")
+    await update.message.reply_text(f"✅ Задача добавлена!\n🕒 {parsed_duration}")
     return ConversationHandler.END
+
 
 
 async def done_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
