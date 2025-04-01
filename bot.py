@@ -70,12 +70,6 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    def format_russian_date(date_obj):
-        days = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
-        day_name = days[date_obj.weekday()]
-        date_str = date_obj.strftime("(%d.%m)")
-        return f"{day_name} {date_str}"
-
     creds = get_credentials()
     service = build("tasks", "v1", credentials=creds)
     results = service.tasks().list(tasklist='@default', showCompleted=False).execute()
@@ -85,28 +79,37 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🎉 У тебя нет активных задач.")
         return
 
-    message = "📝 Твои задачи:\n"
-    for idx, task in enumerate(items, start=1):
-        title = task['title']
-        notes = task.get('notes', '')
+    grouped = {}
+    for task in items:
         due = task.get('due')
+        try:
+            if due:
+                due_dt = datetime.strptime(due, "%Y-%m-%dT%H:%M:%S.%fZ").replace(
+                    tzinfo=timezone.utc
+                ).astimezone(MINSK_TZ)
+                key = due_dt.date()
+            else:
+                key = "Без даты"
+        except Exception:
+            key = "Без даты"
 
-        if due:
-            try:
-                due_dt = datetime.strptime(due, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc).astimezone(MINSK_TZ)
-                due_str = f" — {format_russian_date(due_dt)}"
-            except:
-                due_str = ""
+        grouped.setdefault(key, []).append(task)
+
+    lines = ["📝 Твои задачи:"]
+    for key in sorted(grouped.keys()):
+        if key == "Без даты":
+            lines.append("📅 Без даты:")
         else:
-            due_str = ""
+            weekday = RUSSIAN_WEEKDAYS[datetime.combine(key, datetime.min.time()).strftime("%A")]
+            lines.append(f"\n📅 {weekday} ({key.strftime('%d.%m')}):")
 
-        message += f"{idx}. {title}{due_str}"
-        if notes:
-            message += f" — {notes}"
-        message += "\n"
+        for task in grouped[key]:
+            line = f"• {task['title']}"
+            if task.get("notes"):
+                line += f" — {task['notes']}"
+            lines.append(line)
 
-    context.user_data['tasks'] = items
-    await update.message.reply_text(message)
+    await update.message.reply_text("\n".join(lines))
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
