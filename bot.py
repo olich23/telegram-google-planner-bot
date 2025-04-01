@@ -452,19 +452,9 @@ def main():
         allow_reentry=True
     ))
     
-    app.add_handler(ConversationHandler(
-        entry_points=[MessageHandler(filters.TEXT & ~filters.COMMAND, handle_free_text)],
-        states={
-            ASK_TASK_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_free_text)],
-            ASK_TASK_DURATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_free_text)],
-            ASK_EVENT_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_free_text)],
-            ASK_EVENT_START: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_free_text)],
-            ASK_EVENT_END: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_free_text)],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-        allow_reentry=True
-    ))
 
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_free_text))
+    
     print("🚀 Бот запущен. Жду команды...")
     app.run_polling()
 
