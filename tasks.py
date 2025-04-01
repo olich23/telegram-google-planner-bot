@@ -1,4 +1,4 @@
-rom telegram import Update
+from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
 from auth import get_credentials
 from googleapiclient.discovery import build
