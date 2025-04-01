@@ -81,24 +81,25 @@ def get_credentials():
     return creds
 
 def extract_datetime_from_text(text: str):
-    matches = dates_extractor(text)
+    matches = list(dates_extractor(text))  # превращаем генератор в список
     if matches:
-        match = matches[0]  # берём первое найденное
+        match = matches[0]
         date_fact = match.fact
-        if date_fact and date_fact.year:
-            # У Natasha могут быть неполные даты — дополняем текущим временем
+        if date_fact:
+            year = date_fact.year or datetime.now().year
+            month = date_fact.month or datetime.now().month
+            day = date_fact.day or datetime.now().day
             hour = date_fact.hour or 9
             minute = date_fact.minute or 0
             return datetime(
-                year=date_fact.year,
-                month=date_fact.month,
-                day=date_fact.day,
+                year=year,
+                month=month,
+                day=day,
                 hour=hour,
                 minute=minute,
                 tzinfo=MINSK_TZ
             )
     return None
-
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❌ Действие отменено.")
