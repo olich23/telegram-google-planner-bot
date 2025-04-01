@@ -355,6 +355,43 @@ async def received_event_end(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def handle_free_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip().lower()
 
+    # Распознаём дату и время из текста
+    parsed_datetime = dateparser.parse(text, languages=['ru'])
+
+    if parsed_datetime:
+        if any(kw in text for kw in ["встреч", "созвон", "звонок"]):
+            title = update.message.text.split("встреч")[-1].strip().capitalize() or "Без названия"
+            start_dt = parsed_datetime.astimezone(MINSK_TZ)
+            end_dt = start_dt + timedelta(hours=1)
+
+            event = {
+                'summary': title,
+                'start': {'dateTime': start_dt.isoformat(), 'timeZone': 'Europe/Minsk'},
+                'end': {'dateTime': end_dt.isoformat(), 'timeZone': 'Europe/Minsk'},
+                'description': 'Добавлено через свободный ввод'
+            }
+
+            creds = get_credentials()
+            service = build("calendar", "v3", credentials=creds)
+            service.events().insert(calendarId='primary', body=event).execute()
+
+            await update.message.reply_text(f"✅ Встреча '{title}' добавлена на {start_dt.strftime('%d.%m %H:%M')}")
+            return ConversationHandler.END
+
+        elif any(kw in text for kw in ["задач", "сделать", "нужно", "планирую"]):
+            creds = get_credentials()
+            service = build("tasks", "v1", credentials=creds)
+            task = {
+                "title": update.message.text,
+                "due": parsed_datetime.isoformat() + "Z",
+                "notes": "Добавлено через свободный ввод"
+            }
+            service.tasks().insert(tasklist='@default', body=task).execute()
+
+            await update.message.reply_text(f"✅ Задача добавлена на {parsed_datetime.strftime('%d.%m %H:%M')}")
+            return ConversationHandler.END
+
+    # Если в процессе диалога
     if 'task_title' in context.user_data and 'task_due' not in context.user_data:
         parsed_date = dateparser.parse(text, languages=['ru'])
         if parsed_date:
@@ -375,16 +412,7 @@ async def handle_free_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Не понял дату. Введи снова (например: завтра, 01.04.2025):")
             return ASK_EVENT_DATE
 
-    if any(kw in text for kw in ["задача", "сделать", "нужно", "планирую"]):
-        context.user_data['task_title'] = update.message.text
-        await update.message.reply_text("📅 Укажи дату задачи (например: завтра, 01.04.2025):")
-        return ASK_TASK_DATE
-
-    if any(kw in text for kw in ["встреча", "созвон", "звонок", "встретиться"]):
-        context.user_data['event_title'] = update.message.text
-        await update.message.reply_text("📅 Когда назначить встречу? (например: завтра, в пятницу):")
-        return ASK_EVENT_DATE
-
+    # Фоллбэк
     await update.message.reply_text("🤔 Я пока не понимаю это сообщение. Попробуй использовать команды или кнопки.")
     return ConversationHandler.END
 
