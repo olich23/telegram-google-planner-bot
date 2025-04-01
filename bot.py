@@ -552,45 +552,12 @@ async def received_event_end(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def handle_free_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     lowered = text.lower()
-
     print(f"[DEBUG] handle_free_text вызван: {text}")
 
-    # 1. Если мы уже в процессе добавления задачи
-    if 'task_title' in context.user_data and 'task_due' not in context.user_data:
-        print("[DEBUG] Внутри блока ожидания даты для задачи")
-        dt = extract_datetime_from_text(text)
-        if dt:
-            context.user_data['task_due'] = dt.isoformat()
-            await update.message.reply_text("⏱ Сколько времени планируешь на выполнение? (например: 1 час, 30 минут)")
-            return ASK_TASK_DURATION
-        else:
-            await update.message.reply_text("❌ Не понял дату. Введи снова (например: завтра, 01.04.2025):")
-            return ASK_TASK_DATE
-
-    # 2. Если мы уже в процессе добавления встречи
-    if 'event_title' in context.user_data and 'event_date' not in context.user_data:
-        print("[DEBUG] Внутри блока ожидания даты для встречи")
-        dt = extract_datetime_from_text(text)
-        if dt:
-            context.user_data['event_date'] = dt.strftime("%d.%m.%Y")
-            context.user_data['event_start'] = dt.strftime("%H:%M")
-            await update.message.reply_text("🕕 Укажи время окончания встречи (например: 15:30):")
-            return ASK_EVENT_END
-        else:
-            await update.message.reply_text("❌ Не понял дату. Введи снова (например: завтра, 01.04.2025):")
-            return ASK_EVENT_DATE
-    if context.user_data.get('task_due') and 'task_title' in context.user_data:
-        print("[DEBUG] Внутри блока ожидания длительности задачи")
-        return await received_task_duration(update, context)
-    # 3.5. Если уже есть всё кроме окончания встречи — ожидаем время окончания
-    if all(key in context.user_data for key in ['event_title', 'event_date', 'event_start']) and 'event_end' not in context.user_data:
-        print("[DEBUG] Ожидаем время окончания встречи")
-        context.user_data['event_end'] = text
-        return await received_event_end(update, context)
-
-    # 3. Распознавание намерения
+    # 💡 Сначала проверим явное намерение "встреча"
     if any(kw in lowered for kw in ["встреч", "созвон", "звонок", "встрет"]):
         print("[DEBUG] Распознано намерение: встреча")
+        context.user_data.clear()
         context.user_data['event_title'] = text
         dt = extract_datetime_from_text(text)
         if dt:
@@ -602,8 +569,10 @@ async def handle_free_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("📅 Когда назначить встречу? (например: завтра в 14:00):")
             return ASK_EVENT_DATE
 
+    # ✅ Затем проверим задачу
     if any(kw in lowered for kw in ["нужно", "задача", "сделать", "планирую"]):
         print("[DEBUG] Распознано намерение: задача")
+        context.user_data.clear()
         context.user_data['task_title'] = text
         dt = extract_datetime_from_text(text)
         if dt:
@@ -613,6 +582,35 @@ async def handle_free_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text("📅 Укажи дату задачи (например: завтра, 01.04.2025):")
             return ASK_TASK_DATE
+
+    # 🧠 Теперь — если уже в процессе
+    if 'task_title' in context.user_data and 'task_due' not in context.user_data:
+        print("[DEBUG] Внутри блока ожидания даты для задачи")
+        dt = extract_datetime_from_text(text)
+        if dt:
+            context.user_data['task_due'] = dt.isoformat()
+            await update.message.reply_text("⏱ Сколько времени планируешь на выполнение? (например: 1 час, 30 минут)")
+            return ASK_TASK_DURATION
+        else:
+            await update.message.reply_text("❌ Не понял дату. Введи снова (например: завтра, 01.04.2025):")
+            return ASK_TASK_DATE
+
+    if 'event_title' in context.user_data and 'event_date' not in context.user_data:
+        print("[DEBUG] Внутри блока ожидания даты для встречи")
+        dt = extract_datetime_from_text(text)
+        if dt:
+            context.user_data['event_date'] = dt.strftime("%d.%m.%Y")
+            context.user_data['event_start'] = dt.strftime("%H:%M")
+            await update.message.reply_text("🕕 Укажи время окончания встречи (например: 15:30):")
+            return ASK_EVENT_END
+        else:
+            await update.message.reply_text("❌ Не понял дату. Введи снова (например: завтра, 01.04.2025):")
+            return ASK_EVENT_DATE
+
+    if all(key in context.user_data for key in ['event_title', 'event_date', 'event_start']) and 'event_end' not in context.user_data:
+        print("[DEBUG] Ожидаем время окончания встречи")
+        context.user_data['event_end'] = text
+        return await received_event_end(update, context)
 
     print("[DEBUG] Не распознано ни встреча, ни задача")
     await update.message.reply_text("🤔 Я пока не понимаю это сообщение. Попробуй использовать команды или кнопки.")
