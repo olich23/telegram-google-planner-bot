@@ -7,6 +7,7 @@ import base64
 from datetime import datetime, timedelta, timezone
 import pytz
 import dateparser
+import re
 
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
@@ -84,9 +85,10 @@ def get_credentials():
 def extract_datetime_from_text(text: str):
     print("🔥 extract_datetime_from_text ЗАПУСТИЛСЯ")
     print(f"[DEBUG] 🧠 Анализирую текст: {text}")
+    
     matches = list(dates_extractor(text))
     print(f"[DEBUG] Нашёл {len(matches)} совпадений через Natasha")
-
+    
     if matches:
         match = matches[0]
         date_fact = match.fact
@@ -105,13 +107,18 @@ def extract_datetime_from_text(text: str):
                 minute=minute,
                 tzinfo=MINSK_TZ
             )
-    
-    # Фоллбэк на dateparser
+
     print("[DEBUG] Natasha не справилась, пробуем dateparser...")
-    dp_result = dateparser.parse(text, languages=['ru'], settings={"TIMEZONE": "Europe/Minsk", "TO_TIMEZONE": "Europe/Minsk", "RETURN_AS_TIMEZONE_AWARE": True})
-    if dp_result:
-        print(f"[DEBUG] dateparser распознал: {dp_result}")
-        return dp_result
+    
+    # Пробуем выделить подстроку, похожую на дату или время
+    candidates = re.findall(r"(завтра|сегодня|послезавтра|\d{1,2}[:.]\d{2}|\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?)", text.lower())
+    print(f"[DEBUG] Найдено кандидат(ов) на дату: {candidates}")
+
+    for fragment in candidates:
+        dp_result = dateparser.parse(fragment, languages=['ru'], settings={"TIMEZONE": "Europe/Minsk", "TO_TIMEZONE": "Europe/Minsk", "RETURN_AS_TIMEZONE_AWARE": True})
+        if dp_result:
+            print(f"[DEBUG] dateparser распознал из '{fragment}': {dp_result}")
+            return dp_result
 
     print("[DEBUG] Ни Natasha, ни dateparser не распознали дату 😢")
     return None
