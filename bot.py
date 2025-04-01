@@ -35,6 +35,19 @@ SCOPES = [
 ]
 
 MINSK_TZ = pytz.timezone("Europe/Minsk")
+RUSSIAN_WEEKDAYS = {
+    'Monday': 'Понедельник',
+    'Tuesday': 'Вторник',
+    'Wednesday': 'Среда',
+    'Thursday': 'Четверг',
+    'Friday': 'Пятница',
+    'Saturday': 'Суббота',
+    'Sunday': 'Воскресенье',
+}
+
+def format_russian_date(date_obj):
+    weekday = RUSSIAN_WEEKDAYS[date_obj.strftime("%A")]
+    return f"{weekday} ({date_obj.strftime('%d.%m')})"
 
 def get_credentials():
     creds = None
@@ -69,7 +82,11 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         title = task['title']
         notes = task.get('notes', '')
         due = task.get('due')
-        due_str = f" (на {due[:10]})" if due else ""
+        if due:
+        due_dt = datetime.strptime(due, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc).astimezone(MINSK_TZ)
+        due_str = f" — {format_russian_date(due_dt)}"
+        else:
+        due_str = ""
         message += f"{idx}. {title}{due_str}"
         if notes:
             message += f" — {notes}"
@@ -191,7 +208,7 @@ async def today_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ).execute()
     events = events_result.get('items', [])
 
-    lines = ["📆 Задачи и встречи на сегодня:"]
+    lines = [f"📆 Сегодня: {format_russian_date(now)}"]
     lines.extend(today_tasks or ["Задач нет"])
 
     if events:
@@ -221,7 +238,7 @@ async def overdue_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 due_dt = datetime.strptime(due, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc).astimezone(MINSK_TZ)
                 if due_dt < now:
-                    overdue.append(f"❗ {task['title']} (на {due_dt.strftime('%d.%m.%Y')})")
+                    overdue.append(f"❗ {task['title']} — {format_russian_date(due_dt)}")
             except:
                 continue
     if overdue:
@@ -299,7 +316,6 @@ def main():
 
 
     app.add_handler(MessageHandler(filters.Regex(r"^📋 Показать задачи$"), list_tasks))
-    app.add_handler(MessageHandler(filters.Regex(r"^✅ Завершить задачу$"), done_start))
     app.add_handler(MessageHandler(filters.Regex(r"^📆 Сегодня$"), today_tasks))
     app.add_handler(MessageHandler(filters.Regex(r"^⏰ Просроченные$"), overdue_tasks))
     app.add_handler(MessageHandler(filters.Regex(r"^❌ Отменить$"), cancel))
@@ -320,12 +336,16 @@ def main():
     allow_reentry=True
 ))
 
-    app.add_handler(ConversationHandler(
-        entry_points=[CommandHandler("done", done_start)],
-        states={ASK_DONE_INDEX: [MessageHandler(filters.TEXT & ~filters.COMMAND, mark_selected_done)]},
-        fallbacks=[CommandHandler("cancel", cancel)],
-        allow_reentry=True
-    ))
+app.add_handler(ConversationHandler(
+    entry_points=[
+        CommandHandler("done", done_start),
+        MessageHandler(filters.Regex(r"^✅ Завершить задачу$"), done_start)
+    ],
+    states={ASK_DONE_INDEX: [MessageHandler(filters.TEXT & ~filters.COMMAND, mark_selected_done)]},
+    fallbacks=[CommandHandler("cancel", cancel)],
+    allow_reentry=True
+))
+
 
     app.add_handler(ConversationHandler(
     entry_points=[
