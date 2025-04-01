@@ -6,6 +6,7 @@ import io
 import base64
 from datetime import datetime, timedelta, timezone
 import pytz
+import dateparser
 
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
@@ -350,8 +351,6 @@ async def received_event_end(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка при добавлении события: {e}")
     return ConversationHandler.END
-
-import dateparser
 
 async def handle_free_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip().lower()
