@@ -451,8 +451,8 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)],
         allow_reentry=True
     ))
-
- app.add_handler(ConversationHandler(
+    
+    app.add_handler(ConversationHandler(
         entry_points=[MessageHandler(filters.TEXT & ~filters.COMMAND, handle_free_text)],
         states={
             ASK_TASK_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_free_text)],
