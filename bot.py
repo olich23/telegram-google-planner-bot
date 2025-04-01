@@ -19,15 +19,17 @@ from googleapiclient.discovery import build
 from dotenv import load_dotenv
 
 from natasha import (
-    DatesExtractor,
     NewsEmbedding,
+    Segmenter,
     MorphVocab,
-    Doc
+    DatesExtractor
 )
 
-morph_vocab = MorphVocab()
 emb = NewsEmbedding()
-dates_extractor = DatesExtractor(emb)
+morph_vocab = MorphVocab()
+segmenter = Segmenter()
+
+dates_extractor = DatesExtractor(morph_vocab)
 
 
 load_dotenv()
@@ -78,14 +80,23 @@ def get_credentials():
         creds = flow.run_local_server(port=0)
     return creds
 
-def extract_date_from_text(text):
-    doc = Doc(text)
-    doc.segment()
-    doc.tag_ner()
+def extract_datetime_from_text(text: str):
     matches = dates_extractor(text)
     if matches:
-        date_fact = matches[0].fact
-        return date_fact
+        match = matches[0]  # берём первое найденное
+        date_fact = match.fact
+        if date_fact and date_fact.year:
+            # У Natasha могут быть неполные даты — дополняем текущим временем
+            hour = date_fact.hour or 9
+            minute = date_fact.minute or 0
+            return datetime(
+                year=date_fact.year,
+                month=date_fact.month,
+                day=date_fact.day,
+                hour=hour,
+                minute=minute,
+                tzinfo=MINSK_TZ
+            )
     return None
 
 
