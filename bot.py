@@ -81,10 +81,13 @@ def get_credentials():
     return creds
 
 def extract_datetime_from_text(text: str):
-    matches = list(dates_extractor(text))  # превращаем генератор в список
+    print(f"[DEBUG] 🧠 Анализирую текст: {text}")
+    matches = list(dates_extractor(text))
+    print(f"[DEBUG] Нашёл {len(matches)} совпадений")
     if matches:
         match = matches[0]
         date_fact = match.fact
+        print(f"[DEBUG] Распознано: {date_fact}")
         if date_fact:
             year = date_fact.year or datetime.now().year
             month = date_fact.month or datetime.now().month
