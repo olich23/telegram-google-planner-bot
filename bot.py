@@ -289,6 +289,7 @@ async def received_event_end(update: Update, context: ContextTypes.DEFAULT_TYPE)
 def main():
     app = ApplicationBuilder().token(os.getenv("TELEGRAM_TOKEN")).build()
 
+app.add_handler(ConversationHandler(
     entry_points=[
     CommandHandler("addevent", addevent_start),
     MessageHandler(filters.Regex(r"^📅 Добавить встречу$"), addevent_start)
