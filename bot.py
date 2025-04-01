@@ -339,6 +339,7 @@ async def received_event_end(update: Update, context: ContextTypes.DEFAULT_TYPE)
 def main():
     app = ApplicationBuilder().token(os.getenv("TELEGRAM_TOKEN")).build()
 
+    # Команды
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("addevent", addevent_start))
     app.add_handler(CommandHandler("cancel", cancel))
@@ -346,16 +347,18 @@ def main():
     app.add_handler(CommandHandler("today", today_tasks))
     app.add_handler(CommandHandler("overdue", overdue_tasks))
 
-    app.add_handler(MessageHandler(filters.Regex(r"^📝 Добавить задачу$"), addtask_start))
+    # Кнопки быстрого доступа
     app.add_handler(MessageHandler(filters.Regex(r"^📋 Показать задачи$"), list_tasks))
-    app.add_handler(MessageHandler(filters.Regex(r"^📅 Добавить встречу$"), addevent_start))
-    app.add_handler(MessageHandler(filters.Regex(r"^✅ Завершить задачу$"), done_start))
     app.add_handler(MessageHandler(filters.Regex(r"^📆 Сегодня$"), today_tasks))
     app.add_handler(MessageHandler(filters.Regex(r"^⏰ Просроченные$"), overdue_tasks))
     app.add_handler(MessageHandler(filters.Regex(r"^❌ Отменить$"), cancel))
 
+    # ConversationHandler — Добавить задачу (через команду и кнопку)
     app.add_handler(ConversationHandler(
-        entry_points=[CommandHandler("addtask", addtask_start)],
+        entry_points=[
+            CommandHandler("addtask", addtask_start),
+            MessageHandler(filters.Regex(r"^📝 Добавить задачу$"), addtask_start)
+        ],
         states={
             ASK_TASK_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_task_text)],
             ASK_TASK_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_task_date)],
@@ -365,17 +368,12 @@ def main():
         allow_reentry=True
     ))
 
+    # ConversationHandler — Добавить встречу (через команду и кнопку)
     app.add_handler(ConversationHandler(
-        entry_points=[CommandHandler("done", done_start)],
-        states={
-            ASK_DONE_INDEX: [MessageHandler(filters.TEXT & ~filters.COMMAND, mark_selected_done)],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-        allow_reentry=True
-    ))
-
-    app.add_handler(ConversationHandler(
-        entry_points=[CommandHandler("addevent", addevent_start)],
+        entry_points=[
+            CommandHandler("addevent", addevent_start),
+            MessageHandler(filters.Regex(r"^📅 Добавить встречу$"), addevent_start)
+        ],
         states={
             ASK_EVENT_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_title)],
             ASK_EVENT_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_date)],
@@ -386,8 +384,22 @@ def main():
         allow_reentry=True
     ))
 
+    # ConversationHandler — Завершить задачу (через команду и кнопку)
+    app.add_handler(ConversationHandler(
+        entry_points=[
+            CommandHandler("done", done_start),
+            MessageHandler(filters.Regex(r"^✅ Завершить задачу$"), done_start)
+        ],
+        states={
+            ASK_DONE_INDEX: [MessageHandler(filters.TEXT & ~filters.COMMAND, mark_selected_done)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+        allow_reentry=True
+    ))
+
     print("🚀 Бот запущен. Жду команды...")
     app.run_polling()
+
 
 
 if __name__ == "__main__":
