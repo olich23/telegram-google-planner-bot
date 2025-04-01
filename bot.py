@@ -241,8 +241,8 @@ async def received_event_title(update: Update, context: ContextTypes.DEFAULT_TYP
 async def received_event_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     try:
-        datetime.strptime(text, "%d.%m.%Y")
-        context.user_data['event_date'] = text
+        parsed_date = datetime.strptime(text, "%d.%m.%Y")
+        context.user_data['event_date'] = parsed_date.strftime("%d.%m.%Y")
         await update.message.reply_text("🕒 Укажи время начала (например: 14:30):")
         return ASK_EVENT_START
     except ValueError:
