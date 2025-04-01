@@ -8,18 +8,17 @@ from datetime import datetime, timedelta, timezone
 import pytz
 import re
 import telegram
-
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, ContextTypes,
     MessageHandler, filters, ConversationHandler
 )
-
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from dotenv import load_dotenv
 
+# Настройка логгирования
 load_dotenv()
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -31,6 +30,7 @@ logger = logging.getLogger(__name__)
 ASK_TASK_TEXT, ASK_TASK_DATE, ASK_TASK_DURATION = range(3)
 ASK_DONE_INDEX = 0
 ASK_EVENT_TITLE, ASK_EVENT_DATE, ASK_EVENT_START, ASK_EVENT_END = range(4)
+ASK_AUTH_CODE = 10
 
 SCOPES = [
     "https://www.googleapis.com/auth/calendar",
@@ -39,37 +39,39 @@ SCOPES = [
 
 MINSK_TZ = pytz.timezone("Europe/Minsk")
 
-def get_credentials():
-    creds = None
-    encoded_token = os.getenv("GOOGLE_TOKEN")
-    
-    if encoded_token:
-        try:
-            token_data = base64.b64decode(encoded_token)
-            creds = pickle.load(io.BytesIO(token_data))
-            if creds and creds.valid:
-                return creds
-        except Exception as e:
-            logger.error(f"Ошибка загрузки токена: {e}")
+class AuthHandler:
+    auth_code = None
+    auth_url = None
 
+    @classmethod
+    async def get_auth_code(cls, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await update.message.reply_text(
+            "🔐 Пожалуйста, авторизуйтесь по ссылке и введите полученный код:\n"
+            f"{cls.auth_url}\n\n"
+            "После авторизации введите код:"
+        )
+        return ASK_AUTH_CODE
+
+    @classmethod
+    async def receive_auth_code(cls, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        cls.auth_code = update.message.text
+        await update.message.reply_text("✅ Код получен! Пытаюсь авторизоваться...")
+        return ConversationHandler.END
+
+def get_credentials():
+    """Получаем credentials из переменных окружения"""
+    encoded_token = os.getenv("GOOGLE_TOKEN")
+    if not encoded_token:
+        raise ValueError("GOOGLE_TOKEN не установлен")
+    
     try:
-        encoded_creds = os.getenv("GOOGLE_CREDENTIALS")
-        if not encoded_creds:
-            raise ValueError("GOOGLE_CREDENTIALS не установлена")
-        
-        decoded_creds = base64.b64decode(encoded_creds).decode('utf-8')
-        credentials_info = json.loads(decoded_creds)
-        
-        flow = InstalledAppFlow.from_client_config(credentials_info, SCOPES)
-        creds = flow.run_local_server(port=0)
-        
-        token_bytes = pickle.dumps(creds)
-        new_encoded_token = base64.b64encode(token_bytes).decode('utf-8')
-        logger.info(f"Новый токен сгенерирован. Добавьте в GOOGLE_TOKEN: {new_encoded_token}")
-        
-        return creds
+        token_data = base64.b64decode(encoded_token)
+        creds = pickle.load(io.BytesIO(token_data))
+        if creds and creds.valid:
+            return creds
+        raise ValueError("Невалидные учетные данные")
     except Exception as e:
-        logger.error(f"Ошибка получения credentials: {e}")
+        logger.error(f"Ошибка загрузки токена: {e}")
         raise
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -86,15 +88,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📅 /addevent — запланировать встречу в Google Календарь
 📆 /today — показать задачи и встречи на сегодня
 ⏰ /overdue — показать просроченные задачи
+🔐 /auth — авторизация в Google (если нужно)
 ❌ /cancel — отменить текущую операцию
     """
-    keyboard = [["📝 Добавить задачу", "📋 Показать задачи"],
-                ["✅ Завершить задачу", "📅 Добавить встречу"],
-                ["📆 Сегодня", "⏰ Просроченные"],
-                ["❌ Отменить"]]
+    keyboard = [
+        ["📝 Добавить задачу", "📋 Показать задачи"],
+        ["✅ Завершить задачу", "📅 Добавить встречу"],
+        ["📆 Сегодня", "⏰ Просроченные"],
+        ["🔐 Авторизация", "❌ Отменить"]
+    ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    await update.message.reply_text(menu + "\n\nВыберите действие с помощью кнопок ниже:", reply_markup=reply_markup)
-
+    await update.message.reply_text(menu, reply_markup=reply_markup)
 async def addtask_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text("📝 Введи текст задачи:")
@@ -400,27 +404,23 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif update:
         await update.message.reply_text("❌ Произошла ошибка. Пожалуйста, попробуйте позже.")
 
-def main():
-    required_env_vars = ['TELEGRAM_TOKEN', 'GOOGLE_CREDENTIALS']
-    missing_vars = [var for var in required_env_vars if not os.getenv(var)]
-    if missing_vars:
-        logger.critical(f"Отсутствуют обязательные переменные окружения: {', '.join(missing_vars)}")
-        return
-
-    app = ApplicationBuilder().token(os.getenv("TELEGRAM_TOKEN")).build()
-
+def setup_handlers(app):
+    # Основные команды
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("cancel", cancel))
     app.add_handler(CommandHandler("today", today_tasks))
     app.add_handler(CommandHandler("overdue", overdue_tasks))
     app.add_handler(CommandHandler("listtasks", list_tasks))
 
+    # Обработчики кнопок
     app.add_handler(MessageHandler(filters.Regex(r"^📋 Показать задачи$"), list_tasks))
     app.add_handler(MessageHandler(filters.Regex(r"^📆 Сегодня$"), today_tasks))
     app.add_handler(MessageHandler(filters.Regex(r"^⏰ Просроченные$"), overdue_tasks))
     app.add_handler(MessageHandler(filters.Regex(r"^❌ Отменить$"), cancel))
+    app.add_handler(MessageHandler(filters.Regex(r"^🔐 Авторизация$"), AuthHandler.get_auth_code))
 
-    task_conv_handler = ConversationHandler(
+    # Conversation Handlers
+    app.add_handler(ConversationHandler(
         entry_points=[
             CommandHandler("addtask", addtask_start),
             MessageHandler(filters.Regex(r"^📝 Добавить задачу$"), addtask_start)
@@ -432,9 +432,9 @@ def main():
         },
         fallbacks=[CommandHandler("cancel", cancel)],
         allow_reentry=True
-    )
+    ))
 
-    done_conv_handler = ConversationHandler(
+    app.add_handler(ConversationHandler(
         entry_points=[
             CommandHandler("done", done_start),
             MessageHandler(filters.Regex(r"^✅ Завершить задачу$"), done_start)
@@ -444,9 +444,9 @@ def main():
         },
         fallbacks=[CommandHandler("cancel", cancel)],
         allow_reentry=True
-    )
+    ))
 
-    event_conv_handler = ConversationHandler(
+    app.add_handler(ConversationHandler(
         entry_points=[
             CommandHandler("addevent", addevent_start),
             MessageHandler(filters.Regex(r"^📅 Добавить встречу$"), addevent_start)
@@ -459,15 +459,37 @@ def main():
         },
         fallbacks=[CommandHandler("cancel", cancel)],
         allow_reentry=True
-    )
+    ))
 
-    app.add_handler(task_conv_handler)
-    app.add_handler(done_conv_handler)
-    app.add_handler(event_conv_handler)
+    app.add_handler(ConversationHandler(
+        entry_points=[
+            CommandHandler("auth", AuthHandler.get_auth_code),
+            MessageHandler(filters.Regex(r"^🔐 Авторизация$"), AuthHandler.get_auth_code)
+        ],
+        states={
+            ASK_AUTH_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, AuthHandler.receive_auth_code)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)]
+    ))
+
     app.add_error_handler(error_handler)
 
-    logger.info("🚀 Бот запущен. Жду команды...")
-    app.run_polling()
+def main():
+    # Проверка обязательных переменных окружения
+    required_vars = ['TELEGRAM_TOKEN', 'GOOGLE_CREDENTIALS', 'GOOGLE_TOKEN']
+    missing_vars = [var for var in required_vars if not os.getenv(var)]
+    if missing_vars:
+        logger.critical(f"Отсутствуют обязательные переменные: {', '.join(missing_vars)}")
+        return
+
+    try:
+        app = ApplicationBuilder().token(os.getenv("TELEGRAM_TOKEN")).build()
+        setup_handlers(app)
+        logger.info("🚀 Бот запущен. Жду команды...")
+        app.run_polling()
+    except Exception as e:
+        logger.critical(f"Ошибка запуска бота: {e}")
+        raise
 
 if __name__ == "__main__":
     main()
