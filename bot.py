@@ -9,6 +9,7 @@ import pytz
 import dateparser
 import re
 import calendar
+import httpx
 
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
@@ -62,6 +63,9 @@ RUSSIAN_WEEKDAYS = {
     'Saturday': 'Суббота',
     'Sunday': 'Воскресенье',
 }
+
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+OPENROUTER_MODEL = "openrouter/ggml-openchat-3.5-0106"
 
 def format_russian_date(date_obj):
     weekday = RUSSIAN_WEEKDAYS[date_obj.strftime("%A")]
@@ -257,6 +261,7 @@ def parse_duration(text):
         return " ".join(parts)
 
     return text  # fallback — просто сохранить как есть
+
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -616,6 +621,80 @@ async def handle_free_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🤔 Я пока не понимаю это сообщение. Попробуй использовать команды или кнопки.")
     return ConversationHandler.END
 
+async def ask_openrouter(prompt):
+    try:
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": OPENROUTER_MODEL,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.2
+        }
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
+            r.raise_for_status()
+            data = r.json()
+            return data["choices"][0]["message"]["content"]
+    except Exception as e:
+        logging.warning(f"Ошибка при обращении к OpenRouter: {e}")
+        return None
+
+async def handle_free_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    print(f"[DEBUG] handle_free_text вызван: {text}")
+
+    # 🧠 Сначала пробуем спросить ИИ
+    system_prompt = (
+        "Ты помощник планировщика. Пользователь может написать, что хочет сделать."
+        "Распознай, нужно ли создать задачу или встречу и выведи результат в формате JSON:"
+        "{\"type\": \"task|event\", \"title\": \"...\", \"date\": \"дд.мм.гггг\", \"time\": \"чч:мм\" (или null)}"
+        "Если непонятно — верни null."
+    )
+    user_prompt = f"Сообщение: {text}"
+    combined_prompt = f"{system_prompt}\n{user_prompt}"
+
+    result = await ask_openrouter(combined_prompt)
+    if result:
+        try:
+            parsed = eval(result.strip()) if result.strip().startswith("{") else None
+            if isinstance(parsed, dict):
+                task_type = parsed.get("type")
+                title = parsed.get("title")
+                date = parsed.get("date")
+                time = parsed.get("time")
+
+                if task_type == "task":
+                    context.user_data.clear()
+                    context.user_data['task_title'] = title
+                    if date:
+                        try:
+                            dt = datetime.strptime(f"{date} {time or '09:00'}", "%d.%m.%Y %H:%M")
+                            context.user_data['task_due'] = dt.astimezone(MINSK_TZ).isoformat()
+                            await update.message.reply_text("⏱ Сколько времени планируешь на выполнение? (например: 1 час, 30 минут)")
+                            return ASK_TASK_DURATION
+                        except:
+                            pass
+                    await update.message.reply_text("📅 Укажи дату задачи (например: завтра, 01.04.2025):")
+                    return ASK_TASK_DATE
+
+                elif task_type == "event":
+                    context.user_data.clear()
+                    context.user_data['event_title'] = title
+                    if date:
+                        context.user_data['event_date'] = date
+                        context.user_data['event_start'] = time or "09:00"
+                        await update.message.reply_text("🕕 Укажи время окончания встречи (например: 15:30):")
+                        return ASK_EVENT_END
+                    await update.message.reply_text("📅 Когда назначить встречу? (например: завтра в 14:00):")
+                    return ASK_EVENT_DATE
+        except Exception as e:
+            print(f"[DEBUG] Ошибка разбора ответа OpenRouter: {e}")
+
+    print("[DEBUG] ИИ не помог, используем fallback-логику")
+    await update.message.reply_text("🤔 Я пока не понимаю это сообщение. Попробуй использовать команды или кнопки.")
+    return ConversationHandler.END
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logging.error(msg="Exception while handling update:", exc_info=context.error)
