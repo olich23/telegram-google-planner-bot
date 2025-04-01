@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 import pytz
 import dateparser
 import re
+import calendar
 
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
@@ -109,12 +110,13 @@ def extract_datetime_from_text(text: str):
 
     print("[DEBUG] Natasha не справилась, пробуем dateparser...")
 
-    # Поиск даты и времени рядом
     text_lower = text.lower()
-    candidates = re.findall(r"(понедельник|вторник|среда|четверг|пятница|суббота|воскресенье|завтра|сегодня|послезавтра|\d{1,2}[:.]\d{2}|\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?)", text_lower)
+    candidates = re.findall(
+        r"(понедельник|вторник|среда|четверг|пятница|суббота|воскресенье|завтра|сегодня|послезавтра|\d{1,2}[:.]\d{2}|\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?)",
+        text_lower
+    )
     print(f"[DEBUG] Найдено кандидат(ов) на дату: {candidates}")
 
-    # Пробуем соединить соседние элементы, например: "завтра 21:15"
     for i in range(len(candidates)):
         combined = candidates[i]
         if i + 1 < len(candidates):
@@ -129,17 +131,28 @@ def extract_datetime_from_text(text: str):
             return dp_result
 
     print("[DEBUG] Ни Natasha, ни dateparser не распознали дату 😢")
-    for word in candidates:
-        if word in ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье", "завтра", "сегодня", "послезавтра"]:
-            fixed = f"в {word}" if not word.startswith("в ") else word
-            dp_result = dateparser.parse(fixed, languages=['ru'], settings={
-                "TIMEZONE": "Europe/Minsk",
-                "TO_TIMEZONE": "Europe/Minsk",
-                "RETURN_AS_TIMEZONE_AWARE": True
-            })
-            if dp_result:
-                print(f"[DEBUG] Дополненный dateparser распознал: {fixed} → {dp_result}")
-                return dp_result
+
+    # 💡 Ручная обработка дня недели
+    weekdays = {
+        "понедельник": 0,
+        "вторник": 1,
+        "среда": 2,
+        "четверг": 3,
+        "пятница": 4,
+        "суббота": 5,
+        "воскресенье": 6
+    }
+    today = datetime.now(MINSK_TZ).date()
+
+    for word in text_lower.split():
+        if word in weekdays:
+            target_weekday = weekdays[word]
+            days_ahead = (target_weekday - today.weekday() + 7) % 7
+            days_ahead = days_ahead or 7
+            date_result = datetime.combine(today + timedelta(days=days_ahead), datetime.min.time()).replace(tzinfo=MINSK_TZ)
+            print(f"[DEBUG] Ручная обработка дня недели '{word}': {date_result}")
+            return date_result
+
     return None
 
 def parse_duration(duration_text):
@@ -175,6 +188,26 @@ def parse_duration(duration_text):
 
     total_minutes = int(hours * 60 + minutes)
     return total_minutes
+
+def weekday_to_date(word):
+    weekdays = {
+        "понедельник": 0,
+        "вторник": 1,
+        "среда": 2,
+        "четверг": 3,
+        "пятница": 4,
+        "суббота": 5,
+        "воскресенье": 6
+    }
+    today = datetime.now(MINSK_TZ).date()
+    target_weekday = weekdays.get(word.lower())
+    if target_weekday is None:
+        return None
+
+    days_ahead = (target_weekday - today.weekday() + 7) % 7
+    days_ahead = days_ahead or 7  # Если сегодня пятница и пишем "пятница", то следующая
+
+    return datetime.combine(today + timedelta(days=days_ahead), datetime.min.time()).replace(tzinfo=MINSK_TZ)
 
 
 
