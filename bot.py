@@ -85,15 +85,12 @@ def extract_datetime_from_text(text: str):
     print("🔥 extract_datetime_from_text ЗАПУСТИЛСЯ")
     print(f"[DEBUG] 🧠 Анализирую текст: {text}")
     matches = list(dates_extractor(text))
-    print(f"[DEBUG] Нашёл {len(matches)} совпадений")
-
-    for i, m in enumerate(matches):
-        print(f"[DEBUG] Match #{i + 1}: {m.fact}")
+    print(f"[DEBUG] Нашёл {len(matches)} совпадений через Natasha")
 
     if matches:
         match = matches[0]
         date_fact = match.fact
-        print(f"[DEBUG] Распознано: {date_fact}")
+        print(f"[DEBUG] Natasha распознала: {date_fact}")
         if date_fact:
             year = date_fact.year or datetime.now().year
             month = date_fact.month or datetime.now().month
@@ -108,7 +105,17 @@ def extract_datetime_from_text(text: str):
                 minute=minute,
                 tzinfo=MINSK_TZ
             )
+    
+    # Фоллбэк на dateparser
+    print("[DEBUG] Natasha не справилась, пробуем dateparser...")
+    dp_result = dateparser.parse(text, languages=['ru'], settings={"TIMEZONE": "Europe/Minsk", "TO_TIMEZONE": "Europe/Minsk", "RETURN_AS_TIMEZONE_AWARE": True})
+    if dp_result:
+        print(f"[DEBUG] dateparser распознал: {dp_result}")
+        return dp_result
+
+    print("[DEBUG] Ни Natasha, ни dateparser не распознали дату 😢")
     return None
+
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❌ Действие отменено.")
