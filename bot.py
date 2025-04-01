@@ -561,7 +561,9 @@ async def handle_free_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text("❌ Не понял дату. Введи снова (например: завтра, 01.04.2025):")
             return ASK_EVENT_DATE
-
+    if context.user_data.get('task_due') and 'task_title' in context.user_data:
+        print("[DEBUG] Внутри блока ожидания длительности задачи")
+        return await received_task_duration(update, context)
     # 3.5. Если уже есть всё кроме окончания встречи — ожидаем время окончания
     if all(key in context.user_data for key in ['event_title', 'event_date', 'event_start']) and 'event_end' not in context.user_data:
         print("[DEBUG] Ожидаем время окончания встречи")
