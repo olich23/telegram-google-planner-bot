@@ -142,6 +142,40 @@ def extract_datetime_from_text(text: str):
                 return dp_result
     return None
 
+def parse_duration(duration_text):
+    # Попробуем найти количество часов и минут
+    duration_text = duration_text.lower()
+    hours = minutes = 0
+
+    # Числа прописью
+    word_to_number = {
+        "один": 1, "два": 2, "три": 3, "четыре": 4, "пять": 5,
+        "шесть": 6, "семь": 7, "восемь": 8, "девять": 9, "десять": 10,
+        "полтора": 1.5, "пол": 0.5, "полчаса": 0.5
+    }
+
+    for word, value in word_to_number.items():
+        if word in duration_text:
+            if "час" in duration_text:
+                hours += value if isinstance(value, int) else int(value)
+                if isinstance(value, float) and value < 1:
+                    minutes += int(value * 60)
+            elif "минут" in duration_text or "минута" in duration_text:
+                minutes += int(value * 60)
+
+    # Также ищем числовые значения
+    hour_match = re.search(r"(\d+(?:[\.,]\d+)?)\s*час", duration_text)
+    minute_match = re.search(r"(\d+)\s*минут", duration_text)
+
+    if hour_match:
+        hours += float(hour_match.group(1).replace(",", "."))
+
+    if minute_match:
+        minutes += int(minute_match.group(1))
+
+    total_minutes = int(hours * 60 + minutes)
+    return total_minutes
+
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -229,16 +263,18 @@ async def received_task_date(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return ASK_TASK_DATE
 
 async def received_task_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    duration = update.message.text
+    duration_text = update.message.text
+    total_minutes = parse_duration(duration_text)
+
     creds = get_credentials()
     service = build("tasks", "v1", credentials=creds)
     task = {
         "title": context.user_data['task_title'],
         "due": context.user_data['task_due'],
-        "notes": f"Планируемое время: {duration}"
+        "notes": f"Планируемое время: {duration_text} ({total_minutes} минут)"
     }
     service.tasks().insert(tasklist='@default', body=task).execute()
-    await update.message.reply_text("✅ Задача добавлена!")
+    await update.message.reply_text(f"✅ Задача добавлена! Запланировано: {total_minutes} минут.")
     return ConversationHandler.END
 
 async def done_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
