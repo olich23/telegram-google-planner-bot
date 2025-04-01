@@ -85,6 +85,10 @@ def extract_datetime_from_text(text: str):
     print(f"[DEBUG] 🧠 Анализирую текст: {text}")
     matches = list(dates_extractor(text))
     print(f"[DEBUG] Нашёл {len(matches)} совпадений")
+
+    for i, m in enumerate(matches):
+        print(f"[DEBUG] Match #{i + 1}: {m.fact}")
+
     if matches:
         match = matches[0]
         date_fact = match.fact
