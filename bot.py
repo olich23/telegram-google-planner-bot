@@ -517,8 +517,7 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)],
         allow_reentry=True
     )) 
-
-    # Обработка свободного текста, если ни один другой handler не сработал
+    
     app.add_handler(ConversationHandler(
         entry_points=[
             MessageHandler(filters.TEXT & ~filters.COMMAND, handle_free_text)
@@ -533,6 +532,7 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)],
         allow_reentry=True
     ))
+
 
     
     print("🚀 Бот запущен. Жду команды...")
