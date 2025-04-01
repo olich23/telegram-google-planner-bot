@@ -86,6 +86,7 @@ def get_credentials():
 def extract_datetime_from_text(text: str):
     print("🔥 extract_datetime_from_text ЗАПУСТИЛСЯ")
     print(f"[DEBUG] 🧠 Анализирую текст: {text}")
+    now = datetime.now(MINSK_TZ)
 
     matches = list(dates_extractor(text))
     print(f"[DEBUG] Нашёл {len(matches)} совпадений через Natasha")
@@ -94,66 +95,48 @@ def extract_datetime_from_text(text: str):
         date_fact = match.fact
         print(f"[DEBUG] Natasha распознала: {date_fact}")
         if date_fact:
-            year = date_fact.year or datetime.now().year
-            month = date_fact.month or datetime.now().month
-            day = date_fact.day or datetime.now().day
+            year = date_fact.year or now.year
+            month = date_fact.month or now.month
+            day = date_fact.day or now.day
             hour = date_fact.hour or 9
             minute = date_fact.minute or 0
-            return datetime(
-                year=year,
-                month=month,
-                day=day,
-                hour=hour,
-                minute=minute,
-                tzinfo=MINSK_TZ
-            )
+            return datetime(year, month, day, hour, minute, tzinfo=MINSK_TZ)
 
     print("[DEBUG] Natasha не справилась, пробуем dateparser...")
 
     text_lower = text.lower()
-    candidates = re.findall(
-        r"(понедельник|вторник|среда|четверг|пятница|суббота|воскресенье|завтра|сегодня|послезавтра|\d{1,2}[:.]\d{2}|\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?)",
-        text_lower
-    )
+    candidates = re.findall(r"(понедельник|вторник|среда|четверг|пятница|суббота|воскресенье|завтра|сегодня|послезавтра|\d{1,2}[:.]\d{2}|\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?)", text_lower)
     print(f"[DEBUG] Найдено кандидат(ов) на дату: {candidates}")
 
+    # Комбинируем все возможные пары подряд и пробуем распарсить
     for i in range(len(candidates)):
-        combined = candidates[i]
-        if i + 1 < len(candidates):
-            combined += " " + candidates[i + 1]
-        dp_result = dateparser.parse(combined, languages=['ru'], settings={
-            "TIMEZONE": "Europe/Minsk",
-            "TO_TIMEZONE": "Europe/Minsk",
-            "RETURN_AS_TIMEZONE_AWARE": True
-        })
-        if dp_result:
-            print(f"[DEBUG] dateparser распознал из '{combined}': {dp_result}")
-            return dp_result
+        for j in range(i + 1, len(candidates)):
+            combined = candidates[i] + " " + candidates[j]
+            dp_result = dateparser.parse(combined, languages=['ru'], settings={
+                "TIMEZONE": "Europe/Minsk",
+                "TO_TIMEZONE": "Europe/Minsk",
+                "RETURN_AS_TIMEZONE_AWARE": True
+            })
+            if dp_result:
+                print(f"[DEBUG] dateparser распознал из '{combined}': {dp_result}")
+                return dp_result
+
+    # Если не получилось — пробуем по отдельности
+    for word in candidates:
+        if word in ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье", "завтра", "сегодня", "послезавтра"]:
+            fixed = f"в {word}" if not word.startswith("в ") else word
+            dp_result = dateparser.parse(fixed, languages=['ru'], settings={
+                "TIMEZONE": "Europe/Minsk",
+                "TO_TIMEZONE": "Europe/Minsk",
+                "RETURN_AS_TIMEZONE_AWARE": True
+            })
+            if dp_result:
+                print(f"[DEBUG] Дополненный dateparser распознал: {fixed} → {dp_result}")
+                return dp_result
 
     print("[DEBUG] Ни Natasha, ни dateparser не распознали дату 😢")
-
-    # 💡 Ручная обработка дня недели
-    weekdays = {
-        "понедельник": 0,
-        "вторник": 1,
-        "среда": 2,
-        "четверг": 3,
-        "пятница": 4,
-        "суббота": 5,
-        "воскресенье": 6
-    }
-    today = datetime.now(MINSK_TZ).date()
-
-    for word in text_lower.split():
-        if word in weekdays:
-            target_weekday = weekdays[word]
-            days_ahead = (target_weekday - today.weekday() + 7) % 7
-            days_ahead = days_ahead or 7
-            date_result = datetime.combine(today + timedelta(days=days_ahead), datetime.min.time()).replace(tzinfo=MINSK_TZ)
-            print(f"[DEBUG] Ручная обработка дня недели '{word}': {date_result}")
-            return date_result
-
     return None
+
 
 def parse_duration(duration_text):
     # Попробуем найти количество часов и минут
@@ -209,6 +192,45 @@ def weekday_to_date(word):
 
     return datetime.combine(today + timedelta(days=days_ahead), datetime.min.time()).replace(tzinfo=MINSK_TZ)
 
+def parse_duration(text):
+    text = text.lower().strip()
+
+    # Словесные варианты
+    if text in ["час", "1 час", "один час"]:
+        return "1 час"
+    if text in ["полчаса", "пол часа"]:
+        return "30 минут"
+
+    # Проверка на "1.5 часа", "1,5 часа"
+    match = re.match(r"(\d+)[.,](\d+)\s*час", text)
+    if match:
+        hours = int(match.group(1))
+        minutes = int(round(float("0." + match.group(2)) * 60))
+        return f"{hours} час {minutes} минут"
+
+    # Проверка на количество часов
+    match = re.match(r"(\d+)\s*час", text)
+    if match:
+        return f"{match.group(1)} час"
+
+    # Проверка на количество минут
+    match = re.match(r"(\d+)\s*мин", text)
+    if match:
+        return f"{match.group(1)} минут"
+
+    # Попробуем найти оба
+    match = re.match(r"(?:(\d+)\s*час[аов]?)?\s*(?:(\d+)\s*минут[ы]?)?", text)
+    if match:
+        h = match.group(1)
+        m = match.group(2)
+        parts = []
+        if h:
+            parts.append(f"{h} час")
+        if m:
+            parts.append(f"{m} минут")
+        return " ".join(parts)
+
+    return text  # fallback — просто сохранить как есть
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -296,19 +318,20 @@ async def received_task_date(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return ASK_TASK_DATE
 
 async def received_task_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    duration_text = update.message.text
-    total_minutes = parse_duration(duration_text)
+    duration_raw = update.message.text
+    duration_parsed = parse_duration(duration_raw)
 
     creds = get_credentials()
     service = build("tasks", "v1", credentials=creds)
     task = {
         "title": context.user_data['task_title'],
         "due": context.user_data['task_due'],
-        "notes": f"Планируемое время: {duration_text} ({total_minutes} минут)"
+        "notes": f"Планируемое время: {duration_parsed}"
     }
     service.tasks().insert(tasklist='@default', body=task).execute()
-    await update.message.reply_text(f"✅ Задача добавлена! Запланировано: {total_minutes} минут.")
+    await update.message.reply_text(f"✅ Задача добавлена!\n🕒 {duration_parsed}")
     return ConversationHandler.END
+
 
 async def done_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     creds = get_credentials()
