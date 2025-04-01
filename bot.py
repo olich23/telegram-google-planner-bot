@@ -381,8 +381,8 @@ async def received_event_date(update: Update, context: ContextTypes.DEFAULT_TYPE
     try:
         parsed_date = datetime.strptime(text, "%d.%m.%Y")
         context.user_data['event_date'] = parsed_date.strftime("%d.%m.%Y")
-        await update.message.reply_text("🕒 Укажи время начала (например: 14:30):")
-        return ASK_EVENT_START
+        await update.message.reply_text("🕕 Укажи время окончания встречи (например: 15:30):")
+        return ASK_EVENT_END  # ← вот это важно!
     except ValueError:
         await update.message.reply_text("❌ Неверный формат даты. Попробуй снова: ДД.ММ.ГГГГ")
         return ASK_EVENT_DATE
