@@ -239,9 +239,15 @@ async def received_event_title(update: Update, context: ContextTypes.DEFAULT_TYP
     return ASK_EVENT_DATE
 
 async def received_event_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['event_date'] = update.message.text
-    await update.message.reply_text("🕒 Укажи время начала (например: 14:30):")
-    return ASK_EVENT_START
+    text = update.message.text.strip()
+    try:
+        datetime.strptime(text, "%d.%m.%Y")
+        context.user_data['event_date'] = text
+        await update.message.reply_text("🕒 Укажи время начала (например: 14:30):")
+        return ASK_EVENT_START
+    except ValueError:
+        await update.message.reply_text("❌ Неверный формат даты. Попробуй снова: ДД.ММ.ГГГГ")
+        return ASK_EVENT_DATE
 
 async def received_event_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['event_start'] = update.message.text
