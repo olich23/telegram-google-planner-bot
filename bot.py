@@ -82,6 +82,7 @@ def get_credentials():
     return creds
 
 def extract_datetime_from_text(text: str):
+    print("🔥 extract_datetime_from_text ЗАПУСТИЛСЯ")
     print(f"[DEBUG] 🧠 Анализирую текст: {text}")
     matches = list(dates_extractor(text))
     print(f"[DEBUG] Нашёл {len(matches)} совпадений")
