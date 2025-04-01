@@ -108,7 +108,7 @@ def extract_datetime_from_text(text: str):
     candidates = re.findall(r"(понедельник|вторник|среда|четверг|пятница|суббота|воскресенье|завтра|сегодня|послезавтра|\d{1,2}[:.]\d{2}|\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?)", text_lower)
     print(f"[DEBUG] Найдено кандидат(ов) на дату: {candidates}")
 
-    # Комбинируем все возможные пары подряд и пробуем распарсить
+    # Комбинируем пары
     for i in range(len(candidates)):
         for j in range(i + 1, len(candidates)):
             combined = candidates[i] + " " + candidates[j]
@@ -121,17 +121,35 @@ def extract_datetime_from_text(text: str):
                 print(f"[DEBUG] dateparser распознал из '{combined}': {dp_result}")
                 return dp_result
 
-    # Если не получилось — пробуем по отдельности
+    # Обработка словесных дней недели отдельно
+    weekdays = {
+        "понедельник": 0,
+        "вторник": 1,
+        "среда": 2,
+        "четверг": 3,
+        "пятница": 4,
+        "суббота": 5,
+        "воскресенье": 6,
+    }
     for word in candidates:
-        if word in ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье", "завтра", "сегодня", "послезавтра"]:
-            fixed = f"в {word}" if not word.startswith("в ") else word
-            dp_result = dateparser.parse(fixed, languages=['ru'], settings={
+        if word in weekdays:
+            target_weekday = weekdays[word]
+            today = now.weekday()
+            days_ahead = (target_weekday - today + 7) % 7
+            days_ahead = days_ahead or 7
+            future_date = now + timedelta(days=days_ahead)
+            future_date = future_date.replace(hour=9, minute=0, second=0, microsecond=0)
+            print(f"[DEBUG] День недели '{word}' интерпретирован как: {future_date}")
+            return future_date
+
+        if word in ["завтра", "сегодня", "послезавтра"]:
+            dp_result = dateparser.parse(word, languages=['ru'], settings={
                 "TIMEZONE": "Europe/Minsk",
                 "TO_TIMEZONE": "Europe/Minsk",
                 "RETURN_AS_TIMEZONE_AWARE": True
             })
             if dp_result:
-                print(f"[DEBUG] Дополненный dateparser распознал: {fixed} → {dp_result}")
+                print(f"[DEBUG] dateparser распознал '{word}' как: {dp_result}")
                 return dp_result
 
     print("[DEBUG] Ни Natasha, ни dateparser не распознали дату 😢")
