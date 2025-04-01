@@ -53,6 +53,7 @@ def get_credentials():
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
+    context.conversation_data.clear()
     await update.message.reply_text("❌ Действие отменено.")
     return ConversationHandler.END
 
@@ -76,6 +77,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(menu + "\n\nВыберите действие с помощью кнопок ниже:", reply_markup=reply_markup)
 
 async def addtask_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+    context.conversation_data.clear()
     await update.message.reply_text("📝 Введи текст задачи:")
     return ASK_TASK_TEXT
 
@@ -107,7 +110,8 @@ async def received_task_duration(update: Update, context: ContextTypes.DEFAULT_T
     await update.message.reply_text("✅ Задача добавлена!")
     return ConversationHandler.END
 
-async def done_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+    context.conversation_data.clear()
     creds = get_credentials()
     service = build("tasks", "v1", credentials=creds)
     result = service.tasks().list(tasklist='@default', showCompleted=False).execute()
@@ -211,6 +215,8 @@ async def overdue_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("✅ У тебя нет просроченных задач!")
 
 async def addevent_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+    context.conversation_data.clear()
     await update.message.reply_text("📌 Введи название встречи:")
     return ASK_EVENT_TITLE
 
