@@ -449,6 +449,12 @@ async def handle_free_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Не понял дату. Введи снова (например: завтра, 01.04.2025):")
             return ASK_EVENT_DATE
 
+    # 3.5. Если уже есть всё кроме окончания встречи — ожидаем время окончания
+    if all(key in context.user_data for key in ['event_title', 'event_date', 'event_start']) and 'event_end' not in context.user_data:
+        print("[DEBUG] Ожидаем время окончания встречи")
+        context.user_data['event_end'] = text
+        return await received_event_end(update, context)
+
     # 3. Распознавание намерения
     if any(kw in lowered for kw in ["встреч", "созвон", "звонок", "встрет"]):
         print("[DEBUG] Распознано намерение: встреча")
@@ -478,6 +484,7 @@ async def handle_free_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     print("[DEBUG] Не распознано ни встреча, ни задача")
     await update.message.reply_text("🤔 Я пока не понимаю это сообщение. Попробуй использовать команды или кнопки.")
     return ConversationHandler.END
+
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logging.error(msg="Exception while handling update:", exc_info=context.error)
