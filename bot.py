@@ -232,52 +232,6 @@ async def overdue_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def addevent_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📌 Введи название встречи:")
     return ASK_EVENT_TITLE
-
-
-def main():
-    app = ApplicationBuilder().token(os.getenv("TELEGRAM_TOKEN")).build()
-    app.add_handler(ConversationHandler(
-    entry_points=[CommandHandler("addevent", addevent_start)],
-    states={
-    ASK_EVENT_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_title)],
-    ASK_EVENT_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_date)],
-    ASK_EVENT_START: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_start)],
-    ASK_EVENT_END: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_end)],
-    },
-    fallbacks=[CommandHandler("cancel", cancel)],
-    allow_reentry=True
-    ))
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("cancel", cancel))
-    app.add_handler(CommandHandler("listtasks", list_tasks))
-    app.add_handler(CommandHandler("today", today_tasks))
-    app.add_handler(CommandHandler("overdue", overdue_tasks))
-
-    app.add_handler(ConversationHandler(
-    entry_points=[CommandHandler("addtask", addtask_start)],
-    states={
-    ASK_TASK_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_task_text)],
-    ASK_TASK_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_task_date)],
-    ASK_TASK_DURATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_task_duration)],
-    },
-    fallbacks=[CommandHandler("cancel", cancel)],
-    allow_reentry=True
-    ))
-
-    app.add_handler(ConversationHandler(
-    entry_points=[CommandHandler("done", done_start)],
-    states={ASK_DONE_INDEX: [MessageHandler(filters.TEXT & ~filters.COMMAND, mark_selected_done)]},
-    fallbacks=[CommandHandler("cancel", cancel)],
-    allow_reentry=True
-    ))
-
-    print("🚀 Бот запущен. Жду команды...")
-    app.run_polling()
-
-if __name__ == "__main__":
-    main()
-
 async def received_event_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['event_title'] = update.message.text
     await update.message.reply_text("📅 Укажи дату встречи (ДД.ММ.ГГГГ):")
@@ -318,3 +272,48 @@ async def received_event_end(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка при добавлении события: {e}")
     return ConversationHandler.END
+
+def main():
+    app = ApplicationBuilder().token(os.getenv("TELEGRAM_TOKEN")).build()
+app.add_handler(ConversationHandler(
+        entry_points=[CommandHandler("addevent", addevent_start)],
+        states={
+            ASK_EVENT_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_title)],
+            ASK_EVENT_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_date)],
+            ASK_EVENT_START: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_start)],
+            ASK_EVENT_END: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_event_end)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+        allow_reentry=True
+    ))
+
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("cancel", cancel))
+app.add_handler(CommandHandler("listtasks", list_tasks))
+app.add_handler(CommandHandler("today", today_tasks))
+app.add_handler(CommandHandler("overdue", overdue_tasks))
+
+app.add_handler(ConversationHandler(
+        entry_points=[CommandHandler("addtask", addtask_start)],
+        states={
+            ASK_TASK_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_task_text)],
+            ASK_TASK_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_task_date)],
+            ASK_TASK_DURATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_task_duration)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+        allow_reentry=True
+    ))
+
+app.add_handler(ConversationHandler(
+        entry_points=[CommandHandler("done", done_start)],
+        states={ASK_DONE_INDEX: [MessageHandler(filters.TEXT & ~filters.COMMAND, mark_selected_done)]},
+        fallbacks=[CommandHandler("cancel", cancel)],
+        allow_reentry=True
+    ))
+
+print("🚀 Бот запущен. Жду команды...")
+app.run_polling()
+
+if __name__ == "__main__":
+    main()
+
