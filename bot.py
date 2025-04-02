@@ -8,6 +8,7 @@ import json
 from datetime import datetime, timedelta, timezone
 import pytz
 
+
 import openai  # необходимо установить пакет openai (pip install openai)
 
 from telegram import Update, ReplyKeyboardMarkup
