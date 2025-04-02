@@ -8,3 +8,4 @@ dateparser
 natasha
 setuptools
 httpx
+openai
