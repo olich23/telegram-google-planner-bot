@@ -4,8 +4,11 @@ import pickle
 import os
 import io
 import base64
+import json
 from datetime import datetime, timedelta, timezone
 import pytz
+
+import openai  # необходимо установить пакет openai (pip install openai)
 
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
@@ -20,6 +23,7 @@ from dotenv import load_dotenv
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
 
+# Состояния для ConversationHandler
 ASK_TASK_TEXT = 0
 ASK_TASK_DATE = 1
 ASK_TASK_DURATION = 2
@@ -115,12 +119,13 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     menu = """👋 Привет! Я бот-планировщик. Вот что я умею:
 
-📝 /addtask — добавить задачу с датой и временем
-📋 /listtasks — показать список всех активных задач
-✅ /done — выбрать и отметить задачу как выполненную
-📅 /addevent — запланировать встречу в Google Календарь
-📆 /today — показать задачи и встречи на сегодня
-⏰ /overdue — показать просроченные задачи
+📝 /addtask — добавить задачу с датой и временем  
+📋 /listtasks — показать список всех активных задач  
+✅ /done — выбрать и отметить задачу как выполненную  
+📅 /addevent — запланировать встречу в Google Календарь  
+📆 /today — показать задачи и встречи на сегодня  
+⏰ /overdue — показать просроченные задачи  
+🤖 /ai — ввести команду в свободной форме  
 ❌ /cancel — отменить текущую операцию
 """
     keyboard = [["📝 Добавить задачу", "📋 Показать задачи"],
@@ -202,16 +207,15 @@ async def today_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     today_start = datetime(now.year, now.month, now.day, tzinfo=MINSK_TZ)
     today_end = today_start + timedelta(days=1)
 
-    # Формат заголовка
     formatted_today = format_russian_date(today_start)
     lines = [f"📆 Сегодня: {formatted_today}"]
 
-    # Получаем задачи
+    # Задачи
     task_service = build("tasks", "v1", credentials=creds)
     result = task_service.tasks().list(tasklist='@default', showCompleted=False).execute()
     tasks = result.get('items', [])
 
-    today_tasks = []
+    today_tasks_list = []
     for task in tasks:
         due = task.get("due")
         if due:
@@ -221,14 +225,14 @@ async def today_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     line = f"• {task['title']}"
                     if task.get("notes"):
                         line += f" — {task['notes']}"
-                    today_tasks.append(line)
+                    today_tasks_list.append(line)
             except Exception as e:
                 logging.warning(f"Ошибка в обработке задачи: {e}")
 
     lines.append("\n📝 Задачи:")
-    lines.extend(today_tasks or ["Нет задач на сегодня."])
+    lines.extend(today_tasks_list or ["Нет задач на сегодня."])
 
-    # Получаем встречи
+    # Встречи
     calendar_service = build("calendar", "v3", credentials=creds)
     events_result = calendar_service.events().list(
         calendarId='primary',
@@ -253,7 +257,6 @@ async def today_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append("Нет встреч на сегодня.")
 
     await update.message.reply_text("\n".join(lines))
-
 
 
 async def overdue_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -308,7 +311,6 @@ async def received_event_title(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text("❌ Название не может быть пустым. Введи ещё раз:")
         return ASK_EVENT_TITLE
 
-
 async def received_event_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     try:
@@ -351,6 +353,111 @@ async def received_event_end(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(f"❌ Ошибка при добавлении события: {e}")
     return ConversationHandler.END
 
+# --- Новый раздел: обработка ИИ-команды через OpenRouter ---
+
+# Функция для выполнения команды, полученной от ИИ
+async def process_ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE, command_dict):
+    command = command_dict.get("command")
+    params = command_dict.get("params", {})
+
+    if command == "addtask":
+        title = params.get("title")
+        date = params.get("date")
+        duration = params.get("duration")
+        if not title or not date or not duration:
+            await update.message.reply_text("❌ Для добавления задачи необходимы: название, дата и продолжительность.")
+            return
+        try:
+            task_date = datetime.strptime(date, "%d.%m.%Y")
+            due = task_date.isoformat() + "Z"
+        except ValueError:
+            await update.message.reply_text("❌ Неверный формат даты. Используйте ДД.ММ.ГГГГ")
+            return
+        creds = get_credentials()
+        service = build("tasks", "v1", credentials=creds)
+        task = {
+            "title": title,
+            "due": due,
+            "notes": f"Планируемое время: {duration}"
+        }
+        service.tasks().insert(tasklist='@default', body=task).execute()
+        await update.message.reply_text("✅ Задача добавлена через ИИ!")
+    elif command == "listtasks":
+        return await list_tasks(update, context)
+    elif command == "done":
+        return await done_start(update, context)
+    elif command == "addevent":
+        title = params.get("title")
+        date = params.get("date")
+        start_time = params.get("start")
+        end_time = params.get("end")
+        if not title or not date or not start_time or not end_time:
+            await update.message.reply_text("❌ Для добавления встречи необходимы: название, дата, время начала и время окончания.")
+            return
+        try:
+            start_dt = datetime.strptime(f"{date} {start_time}", "%d.%m.%Y %H:%M")
+            end_dt = datetime.strptime(f"{date} {end_time}", "%d.%m.%Y %H:%M")
+        except ValueError:
+            await update.message.reply_text("❌ Неверный формат даты или времени.")
+            return
+        event = {
+            'summary': title,
+            'start': {'dateTime': start_dt.isoformat(), 'timeZone': 'Europe/Minsk'},
+            'end': {'dateTime': end_dt.isoformat(), 'timeZone': 'Europe/Minsk'},
+            'description': 'Добавлено через Telegram-бота (ИИ)'
+        }
+        creds = get_credentials()
+        service = build("calendar", "v3", credentials=creds)
+        service.events().insert(calendarId='primary', body=event).execute()
+        await update.message.reply_text(f"✅ Встреча '{title}' добавлена в календарь через ИИ!")
+    elif command == "today":
+        return await today_tasks(update, context)
+    elif command == "overdue":
+        return await overdue_tasks(update, context)
+    else:
+        await update.message.reply_text("❌ Команда не распознана.")
+
+# Обработчик команды /ai с вызовом OpenRouter
+async def ai_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_input = update.message.text.replace("/ai", "").strip()
+    
+    # Настраиваем параметры OpenRouter
+    openai.api_key = "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"
+    openai.api_base = "https://openrouter.ai/api/v1"
+    # В данном примере используем модель gpt-3.5-turbo; при необходимости можно настроить параметры
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Ты выступаешь в роли маршрутизатора команд для Telegram-бота-планировщика. "
+                        "На вход получаешь запрос пользователя в свободной форме. "
+                        "Выведи JSON-объект с полем 'command', значение которого может быть одним из: "
+                        "'addtask', 'listtasks', 'done', 'addevent', 'today', 'overdue'. "
+                        "Если команда требует дополнительных параметров, передай их в поле 'params'. "
+                        "Если команда не распознана, выведи 'unknown'. "
+                        "Пример: {\"command\": \"addtask\", \"params\": {\"title\": \"Купить хлеб\", \"date\": \"01.01.2025\", \"duration\": \"30 минут\"}}"
+                    )
+                },
+                {"role": "user", "content": user_input}
+            ],
+            temperature=0
+        )
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка обращения к OpenRouter: {e}")
+        return
+
+    try:
+        ai_message = response["choices"][0]["message"]["content"]
+        command_dict = json.loads(ai_message)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Не удалось обработать ответ ИИ: {e}")
+        return
+
+    await process_ai_command(update, context, command_dict)
+
 def main():
     app = ApplicationBuilder().token(os.getenv("TELEGRAM_TOKEN")).build()
 
@@ -361,6 +468,8 @@ def main():
     app.add_handler(CommandHandler("listtasks", list_tasks))
     app.add_handler(CommandHandler("today", today_tasks))
     app.add_handler(CommandHandler("overdue", overdue_tasks))
+    # Обработчик для свободного ввода через ИИ
+    app.add_handler(CommandHandler("ai", ai_handler))
 
     # Кнопки быстрого доступа
     app.add_handler(MessageHandler(filters.Regex(r"^📋 Показать задачи$"), list_tasks))
@@ -414,8 +523,6 @@ def main():
 
     print("🚀 Бот запущен. Жду команды...")
     app.run_polling()
-
-
 
 if __name__ == "__main__":
     main()
