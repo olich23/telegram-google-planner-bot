@@ -8,8 +8,8 @@ import json
 from datetime import datetime, timedelta, timezone
 import pytz
 
-
-import openai  # необходимо установить пакет openai (pip install openai)
+import openai
+from openai import ChatCompletion  # Импортируем напрямую согласно новой версии
 
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
@@ -418,16 +418,16 @@ async def process_ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE,
     else:
         await update.message.reply_text("❌ Команда не распознана.")
 
-# Обработчик команды /ai с вызовом OpenRouter
+# Обработчик команды /ai с вызовом OpenRouter через ChatCompletion
 async def ai_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_input = update.message.text.replace("/ai", "").strip()
     
     # Настраиваем параметры OpenRouter
     openai.api_key = "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"
     openai.api_base = "https://openrouter.ai/api/v1"
-    # В данном примере используем модель gpt-3.5-turbo; при необходимости можно настроить параметры
+    
     try:
-        response = openai.ChatCompletion.create(
+        response = ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
                 {
