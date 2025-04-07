@@ -18,7 +18,8 @@ from googleapiclient.discovery import build
 from dotenv import load_dotenv
 
 # Импорт для GPT-2
-from transformers import GPT2LMHeadModel, GPT2Tokenizer
+from huggingface_hub import InferenceApi
+inference = InferenceApi(repo_id="distilgpt2")
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -69,21 +70,12 @@ def get_credentials():
     return creds
 
 def generate_ai_response(prompt, max_length=100):
-    # Используем tokenizer для получения словаря с input_ids и attention_mask
-    inputs = tokenizer(prompt, return_tensors="pt")
-    output_ids = model.generate(
-        inputs["input_ids"],
-        attention_mask=inputs["attention_mask"],
-        max_length=max_length,
-        num_return_sequences=1,
-        no_repeat_ngram_size=2,
-        do_sample=True,
-        top_k=50,
-        top_p=0.95,
-    )
-    response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
-    return response
-
+    # Отправляем запрос к Inference API
+    response = inference(inputs=prompt)
+    
+    # Ответ приходит в виде словаря, где может быть ключ 'generated_text'
+    generated_text = response.get("generated_text", "")
+    return generated_text
 
 # --- Обработка команд для задач, встреч и пр. (оставляем без изменений) ---
 
