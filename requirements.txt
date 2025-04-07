@@ -10,5 +10,6 @@ setuptools
 httpx
 openai
 transformers>=4.31.0
+accelerate>=0.20.3
 torch
 
