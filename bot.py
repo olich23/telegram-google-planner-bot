@@ -17,9 +17,8 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from dotenv import load_dotenv
 
-# Импорт для GPT-2
+# Импортируем Inference API от Hugging Face
 from huggingface_hub import InferenceApi
-inference = InferenceApi(repo_id="distilgpt2")
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -69,16 +68,6 @@ def get_credentials():
         creds = flow.run_local_server(port=0)
     return creds
 
-def generate_ai_response(prompt, max_length=100):
-    # Отправляем запрос к Inference API
-    response = inference(inputs=prompt)
-    
-    # Ответ приходит в виде словаря, где может быть ключ 'generated_text'
-    generated_text = response.get("generated_text", "")
-    return generated_text
-
-# --- Обработка команд для задач, встреч и пр. (оставляем без изменений) ---
-
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❌ Действие отменено.")
     return ConversationHandler.END
@@ -125,7 +114,6 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("\n".join(lines))
 
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     menu = """👋 Привет! Я бот-планировщик. Вот что я умею:
 
@@ -135,7 +123,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📅 /addevent — запланировать встречу в Google Календарь
 📆 /today — показать задачи и встречи на сегодня
 ⏰ /overdue — показать просроченные задачи
-🤖 /ai — общаться с ИИ (GPT-2)
+🤖 /ai — общаться с ИИ (через Hugging Face Inference API)
 ❌ /cancel — отменить текущую операцию
 """
     keyboard = [["📝 Добавить задачу", "📋 Показать задачи"],
@@ -217,11 +205,9 @@ async def today_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     today_start = datetime(now.year, now.month, now.day, tzinfo=MINSK_TZ)
     today_end = today_start + timedelta(days=1)
 
-    # Формат заголовка
     formatted_today = format_russian_date(today_start)
     lines = [f"📆 Сегодня: {formatted_today}"]
 
-    # Получаем задачи
     task_service = build("tasks", "v1", credentials=creds)
     result = task_service.tasks().list(tasklist='@default', showCompleted=False).execute()
     tasks = result.get('items', [])
@@ -243,7 +229,6 @@ async def today_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines.append("\n📝 Задачи:")
     lines.extend(today_tasks or ["Нет задач на сегодня."])
 
-    # Получаем встречи
     calendar_service = build("calendar", "v3", credentials=creds)
     events_result = calendar_service.events().list(
         calendarId='primary',
@@ -268,7 +253,6 @@ async def today_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append("Нет встреч на сегодня.")
 
     await update.message.reply_text("\n".join(lines))
-
 
 async def overdue_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     creds = get_credentials()
@@ -306,7 +290,6 @@ async def overdue_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.extend(grouped_tasks[date])
 
     await update.message.reply_text("\n".join(lines))
-
 
 async def addevent_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📌 Введи название встречи:")
@@ -364,29 +347,16 @@ async def received_event_end(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(f"❌ Ошибка при добавлении события: {e}")
     return ConversationHandler.END
 
-# --- Интеграция GPT-2 ---
-
-logging.info("Загружаем модель GPT-2...")
-tokenizer = GPT2Tokenizer.from_pretrained("distilgpt2")
-model = GPT2LMHeadModel.from_pretrained("distilgpt2")
-logging.info("Модель GPT-2 загружена.")
+# --- Интеграция Hugging Face Inference API ---
+# Инициализируем API для модели distilgpt2 (вы можете указать другой репозиторий)
+inference = InferenceApi(repo_id="distilgpt2")
 
 def generate_ai_response(prompt, max_length=100):
-    input_ids = tokenizer.encode(prompt, return_tensors="pt")
-    output_ids = model.generate(
-        input_ids,
-        max_length=max_length,
-        num_return_sequences=1,
-        no_repeat_ngram_size=2,
-        do_sample=True,
-        top_k=50,
-        top_p=0.95,
-    )
-    response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
-    return response
+    response = inference(inputs=prompt)
+    generated_text = response.get("generated_text", "")
+    return generated_text
 
 async def ai_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Извлекаем текст после команды /ai
     text = update.message.text
     prompt = text[3:].strip() if text.startswith("/ai") else text.strip()
     if not prompt:
@@ -405,7 +375,7 @@ def main():
     app.add_handler(CommandHandler("listtasks", list_tasks))
     app.add_handler(CommandHandler("today", today_tasks))
     app.add_handler(CommandHandler("overdue", overdue_tasks))
-    # Новая команда для общения с ИИ
+    # Команда для общения с ИИ
     app.add_handler(CommandHandler("ai", ai_chat))
 
     # Кнопки быстрого доступа
@@ -414,7 +384,7 @@ def main():
     app.add_handler(MessageHandler(filters.Regex(r"^⏰ Просроченные$"), overdue_tasks))
     app.add_handler(MessageHandler(filters.Regex(r"^❌ Отменить$"), cancel))
 
-    # ConversationHandler — Добавить задачу (через команду и кнопку)
+    # ConversationHandler — Добавить задачу
     app.add_handler(ConversationHandler(
         entry_points=[
             CommandHandler("addtask", addtask_start),
@@ -429,7 +399,7 @@ def main():
         allow_reentry=True
     ))
 
-    # ConversationHandler — Добавить встречу (через команду и кнопку)
+    # ConversationHandler — Добавить встречу
     app.add_handler(ConversationHandler(
         entry_points=[
             CommandHandler("addevent", addevent_start),
@@ -445,7 +415,7 @@ def main():
         allow_reentry=True
     ))
 
-    # ConversationHandler — Завершить задачу (через команду и кнопку)
+    # ConversationHandler — Завершить задачу
     app.add_handler(ConversationHandler(
         entry_points=[
             CommandHandler("done", done_start),
