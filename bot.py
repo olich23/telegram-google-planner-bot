@@ -348,12 +348,20 @@ async def received_event_end(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return ConversationHandler.END
 
 # --- Интеграция Hugging Face Inference API ---
-# Инициализируем API для модели distilgpt2 (вы можете указать другой репозиторий)
+# Инициализируем API для модели distilgpt2
 inference = InferenceApi(repo_id="distilgpt2")
 
 def generate_ai_response(prompt, max_length=100):
-    response = inference(inputs=prompt)
-    generated_text = response.get("generated_text", "")
+    # Передаем raw_response=True и парсим JSON-ответ
+    raw_response = inference(inputs=prompt, raw_response=True)
+    response_json = raw_response.json()
+    # Если ответ приходит в виде списка, берем первый элемент
+    if isinstance(response_json, list) and len(response_json) > 0:
+        generated_text = response_json[0].get("generated_text", "")
+    elif isinstance(response_json, dict):
+        generated_text = response_json.get("generated_text", "")
+    else:
+        generated_text = ""
     return generated_text
 
 async def ai_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
