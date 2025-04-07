@@ -9,5 +9,6 @@ natasha
 setuptools
 httpx
 openai
-transformers
+transformers>=4.31.0
 torch
+
