@@ -375,8 +375,8 @@ async def received_event_end(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # --- Интеграция GPT-2 ---
 
 logging.info("Загружаем модель GPT-2...")
-tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
-model = GPT2LMHeadModel.from_pretrained("gpt2", low_cpu_mem_usage=True)
+tokenizer = GPT2Tokenizer.from_pretrained("distilgpt2")
+model = GPT2LMHeadModel.from_pretrained("distilgpt2")
 logging.info("Модель GPT-2 загружена.")
 
 def generate_ai_response(prompt, max_length=100):
