@@ -17,8 +17,8 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from dotenv import load_dotenv
 
-# Импортируем Inference API от Hugging Face
-from huggingface_hub import InferenceApi
+# Импорт нового клиента для Inference от Hugging Face
+from huggingface_hub import InferenceClient
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -347,19 +347,18 @@ async def received_event_end(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(f"❌ Ошибка при добавлении события: {e}")
     return ConversationHandler.END
 
-# --- Интеграция Hugging Face Inference API ---
-# Инициализируем API для модели distilgpt2
-inference = InferenceApi(repo_id="distilgpt2")
+# --- Интеграция Hugging Face Inference API с новым InferenceClient ---
+# Инициализируем клиента для модели distilgpt2
+inference_client = InferenceClient(model="distilgpt2")
 
 def generate_ai_response(prompt, max_length=100):
-    # Передаем raw_response=True и парсим JSON-ответ
-    raw_response = inference(inputs=prompt, raw_response=True)
-    response_json = raw_response.json()
+    # Передаем параметры генерации через словарь
+    response = inference_client(inputs=prompt, parameters={"max_new_tokens": max_length})
     # Если ответ приходит в виде списка, берем первый элемент
-    if isinstance(response_json, list) and len(response_json) > 0:
-        generated_text = response_json[0].get("generated_text", "")
-    elif isinstance(response_json, dict):
-        generated_text = response_json.get("generated_text", "")
+    if isinstance(response, list) and len(response) > 0:
+        generated_text = response[0].get("generated_text", "")
+    elif isinstance(response, dict):
+        generated_text = response.get("generated_text", "")
     else:
         generated_text = ""
     return generated_text
