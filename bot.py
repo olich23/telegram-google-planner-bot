@@ -348,17 +348,15 @@ async def received_event_end(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return ConversationHandler.END
 
 # --- Интеграция Hugging Face Inference API с новым InferenceClient ---
-# Инициализируем клиента для модели distilgpt2
 inference_client = InferenceClient(model="distilgpt2")
 
 def generate_ai_response(prompt, max_length=100):
-    # Передаем параметры генерации через словарь
-    response = inference_client(inputs=prompt, parameters={"max_new_tokens": max_length})
-    # Если ответ приходит в виде списка, берем первый элемент
-    if isinstance(response, list) and len(response) > 0:
-        generated_text = response[0].get("generated_text", "")
-    elif isinstance(response, dict):
+    # Используем метод text_generation
+    response = inference_client.text_generation(prompt, parameters={"max_new_tokens": max_length})
+    if isinstance(response, dict):
         generated_text = response.get("generated_text", "")
+    elif isinstance(response, list) and len(response) > 0:
+        generated_text = response[0].get("generated_text", "")
     else:
         generated_text = ""
     return generated_text
